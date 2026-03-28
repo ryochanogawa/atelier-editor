@@ -362,3 +362,17 @@ describe("RpcClient", () => {
     });
   });
 });
+
+// ── getRpcClient singleton ──
+
+describe("getRpcClient", () => {
+  it("returns the same instance on multiple calls", async () => {
+    // Reset the singleton by re-importing
+    vi.resetModules();
+    const { getRpcClient } = await import("@/lib/rpc/client");
+
+    const a = getRpcClient();
+    const b = getRpcClient();
+    expect(a).toBe(b);
+  });
+});

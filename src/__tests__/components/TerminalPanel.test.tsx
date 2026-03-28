@@ -175,4 +175,91 @@ describe("TerminalPanel", () => {
 
     expect(mockCall).not.toHaveBeenCalled();
   });
+
+  // ── Error handling ──
+
+  it("logs error when createTerminal RPC fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockCall.mockRejectedValue(new Error("RPC Error [-32601]: Method not found"));
+
+    useWorkspaceStore.setState({ status: "connected" });
+
+    render(<TerminalPanel />);
+
+    await vi.waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Failed to create terminal:",
+        expect.any(Error)
+      );
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it("removes session even when terminal.kill RPC fails", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+
+    mockCall.mockRejectedValue(new Error("Connection lost"));
+
+    useWorkspaceStore.setState({
+      terminalSessions: [{ sessionId: "sess-1", active: true }],
+      activeTerminalId: "sess-1",
+    });
+
+    render(<TerminalPanel />);
+
+    await user.click(screen.getByTitle("Kill terminal"));
+
+    await vi.waitFor(() => {
+      expect(useWorkspaceStore.getState().terminalSessions).toHaveLength(0);
+    });
+  });
+
+  // ── Create Terminal button in empty state ──
+
+  it("clicking Create Terminal button in empty state calls RPC", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+
+    mockCall.mockResolvedValue({ sessionId: "new-sess" });
+
+    // Set sessions to non-empty then back to empty to avoid auto-create
+    useWorkspaceStore.setState({
+      terminalSessions: [],
+      status: "disconnected",
+    });
+
+    render(<TerminalPanel />);
+
+    await user.click(screen.getByText("Create Terminal"));
+
+    expect(mockCall).toHaveBeenCalledWith("terminal.create", {});
+  });
+
+  // ── Auto-create ref reset ──
+
+  it("does not auto-create when sessions already exist", () => {
+    useWorkspaceStore.setState({
+      terminalSessions: [{ sessionId: "sess-1", active: true }],
+      activeTerminalId: "sess-1",
+      status: "connected",
+    });
+
+    render(<TerminalPanel />);
+
+    expect(mockCall).not.toHaveBeenCalled();
+  });
+
+  it("successful create adds session to store", async () => {
+    mockCall.mockResolvedValue({ sessionId: "auto-sess" });
+
+    useWorkspaceStore.setState({ status: "connected" });
+
+    render(<TerminalPanel />);
+
+    await vi.waitFor(() => {
+      const sessions = useWorkspaceStore.getState().terminalSessions;
+      expect(sessions).toContainEqual({ sessionId: "auto-sess", active: true });
+    });
+  });
 });
