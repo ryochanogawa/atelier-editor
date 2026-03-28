@@ -2,10 +2,12 @@
 
 import { useConnection } from "@/hooks/useConnection";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
-import { FileExplorer } from "./FileExplorer";
+import { Sidebar } from "./Sidebar";
 import { TabBar } from "./TabBar";
 import { CodeEditor } from "./CodeEditor";
 import { StatusBar } from "./StatusBar";
+import { WorktreeSelector } from "./WorktreeSelector";
+import { ToastContainer } from "./ToastContainer";
 
 export function EditorLayout() {
   useConnection();
@@ -13,14 +15,19 @@ export function EditorLayout() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#1e1e1e]">
+      {/* Header bar */}
+      <header className="flex h-8 shrink-0 items-center border-b border-[#1e1e1e] bg-[#333333] px-3">
+        <WorktreeSelector />
+      </header>
+
       {/* Main area: sidebar + editor */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
+        {/* Sidebar (Activity Bar + Panel) */}
         <aside
           className="shrink-0 overflow-hidden border-r border-[#1e1e1e]"
-          style={{ width: "var(--sidebar-width, 240px)" }}
+          style={{ width: "calc(48px + var(--sidebar-width, 240px))" }}
         >
-          <FileExplorer />
+          <Sidebar />
         </aside>
 
         {/* Editor area */}
@@ -34,6 +41,9 @@ export function EditorLayout() {
 
       {/* Status bar */}
       <StatusBar />
+
+      {/* Toast notifications */}
+      <ToastContainer />
     </div>
   );
 }

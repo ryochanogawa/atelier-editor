@@ -6,6 +6,7 @@ import type { OnMount, OnChange } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { atelierDarkTheme, ATELIER_THEME_NAME } from "@/lib/editor/theme";
+import { DiffEditor } from "./DiffEditor";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react").then((m) => m.Editor), {
   ssr: false,
@@ -16,11 +17,28 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react").then((m) => m.
   ),
 });
 
+function guessLanguage(path: string): string {
+  const ext = path.split(".").pop() ?? "";
+  const map: Record<string, string> = {
+    ts: "typescript",
+    tsx: "typescriptreact",
+    js: "javascript",
+    jsx: "javascriptreact",
+    json: "json",
+    md: "markdown",
+    css: "css",
+    html: "html",
+  };
+  return map[ext] ?? "plaintext";
+}
+
 export function CodeEditor() {
   const activeTab = useWorkspaceStore((s) => s.activeTab);
   const openFiles = useWorkspaceStore((s) => s.openFiles);
   const updateContent = useWorkspaceStore((s) => s.updateContent);
   const setCursorPosition = useWorkspaceStore((s) => s.setCursorPosition);
+  const diffFile = useWorkspaceStore((s) => s.diffFile);
+  const setDiffFile = useWorkspaceStore((s) => s.setDiffFile);
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
@@ -30,11 +48,9 @@ export function CodeEditor() {
     (editorInstance, monaco) => {
       editorRef.current = editorInstance;
 
-      // テーマ登録
       monaco.editor.defineTheme(ATELIER_THEME_NAME, atelierDarkTheme);
       monaco.editor.setTheme(ATELIER_THEME_NAME);
 
-      // カーソル位置追跡
       editorInstance.onDidChangeCursorPosition((e) => {
         setCursorPosition({
           line: e.position.lineNumber,
@@ -53,6 +69,35 @@ export function CodeEditor() {
     },
     [activeTab, updateContent]
   );
+
+  // Diff モード
+  if (diffFile) {
+    const language = guessLanguage(diffFile.path);
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex h-8 shrink-0 items-center justify-between bg-[#252526] px-3">
+          <span className="text-[12px] text-[#cccccc]">
+            Diff: {diffFile.path}
+          </span>
+          <button
+            type="button"
+            className="rounded px-2 py-0.5 text-[11px] text-[#969696] hover:bg-[#3c3c3c] hover:text-white"
+            onClick={() => setDiffFile(null)}
+          >
+            Close Diff
+          </button>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <DiffEditor
+            original={diffFile.original}
+            modified={diffFile.modified}
+            language={language}
+            path={diffFile.path}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (!file) {
     return (

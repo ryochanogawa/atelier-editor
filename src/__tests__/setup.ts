@@ -19,6 +19,16 @@ afterEach(() => {
     activeTab: null,
     tabOrder: [],
     cursorPosition: null,
+    // Phase 2: Git, Studio, Sidebar, Toast slices
+    gitStatus: [],
+    branches: [],
+    currentBranch: null,
+    commitLog: [],
+    diffFile: null,
+    worktrees: [],
+    activeWorktreeId: null,
+    sidebarView: "files",
+    toasts: [],
   });
 });
 

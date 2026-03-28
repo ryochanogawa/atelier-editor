@@ -88,6 +88,58 @@ export interface RpcMethodMap {
     params: { path: string; content: string };
     result: { success: boolean };
   };
+
+  // Git methods
+  "git.status": {
+    params: { worktreeId?: string };
+    result: GitStatusEntry[];
+  };
+  "git.branches": {
+    params: { worktreeId?: string };
+    result: GitBranch[];
+  };
+  "git.diff": {
+    params: { path: string; worktreeId?: string };
+    result: GitDiffFile;
+  };
+  "git.stage": {
+    params: { paths: string[]; worktreeId?: string };
+    result: { success: boolean };
+  };
+  "git.unstage": {
+    params: { paths: string[]; worktreeId?: string };
+    result: { success: boolean };
+  };
+  "git.commit": {
+    params: { message: string; worktreeId?: string };
+    result: { hash: string };
+  };
+  "git.push": {
+    params: { worktreeId?: string };
+    result: { success: boolean };
+  };
+  "git.log": {
+    params: { limit?: number; worktreeId?: string };
+    result: GitLogEntry[];
+  };
+
+  // Studio (worktree) methods
+  "studio.list": {
+    params: Record<string, never>;
+    result: WorktreeInfo[];
+  };
+  "studio.create": {
+    params: { branch: string };
+    result: WorktreeInfo;
+  };
+  "studio.switch": {
+    params: { worktreeId: string };
+    result: { success: boolean };
+  };
+  "studio.remove": {
+    params: { worktreeId: string };
+    result: { success: boolean };
+  };
 }
 
 // === 通知型マップ ===
@@ -99,8 +151,60 @@ export interface FsWatchParams {
   type: WatchEventType;
 }
 
+export interface GitChangeParams {
+  worktreeId: string;
+  type: "status" | "branch" | "commit";
+}
+
+export interface StudioChangeParams {
+  type: "created" | "removed" | "switched";
+  worktreeId: string;
+}
+
 export interface NotificationMap {
   "fs.watch": FsWatchParams;
+  "git.changed": GitChangeParams;
+  "studio.changed": StudioChangeParams;
+}
+
+// === Git ドメイン型 ===
+
+export type GitFileStatus = "modified" | "added" | "deleted" | "renamed" | "untracked";
+
+export interface GitStatusEntry {
+  path: string;
+  status: GitFileStatus;
+  staged: boolean;
+}
+
+export interface GitBranch {
+  name: string;
+  current: boolean;
+  remote?: string;
+  ahead?: number;
+  behind?: number;
+}
+
+export interface GitDiffFile {
+  path: string;
+  original: string;
+  modified: string;
+}
+
+export interface GitLogEntry {
+  hash: string;
+  message: string;
+  author: string;
+  date: string;
+}
+
+// === Worktree ドメイン型 ===
+
+export interface WorktreeInfo {
+  id: string;
+  path: string;
+  branch: string;
+  isMain: boolean;
 }
 
 // === 接続状態 ===

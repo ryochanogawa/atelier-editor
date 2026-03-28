@@ -4,6 +4,11 @@ import type {
   WorkspaceInfo,
   TreeEntry,
   FileContent,
+  GitStatusEntry,
+  GitBranch,
+  GitLogEntry,
+  GitDiffFile,
+  WorktreeInfo,
 } from "@/lib/rpc/types";
 
 // === Connection Slice ===
@@ -191,13 +196,132 @@ const createCursorSlice: StateCreator<WorkspaceStore, [], [], CursorSlice> = (
   setCursorPosition: (pos) => set({ cursorPosition: pos }),
 });
 
+// === Git Slice ===
+
+interface GitSlice {
+  gitStatus: GitStatusEntry[];
+  branches: GitBranch[];
+  currentBranch: GitBranch | null;
+  commitLog: GitLogEntry[];
+  diffFile: GitDiffFile | null;
+
+  setGitStatus: (entries: GitStatusEntry[]) => void;
+  setBranches: (branches: GitBranch[]) => void;
+  setCommitLog: (entries: GitLogEntry[]) => void;
+  setDiffFile: (diff: GitDiffFile | null) => void;
+  clearGitState: () => void;
+}
+
+const createGitSlice: StateCreator<WorkspaceStore, [], [], GitSlice> = (set) => ({
+  gitStatus: [],
+  branches: [],
+  currentBranch: null,
+  commitLog: [],
+  diffFile: null,
+
+  setGitStatus: (gitStatus) => set({ gitStatus }),
+  setBranches: (branches) =>
+    set({
+      branches,
+      currentBranch: branches.find((b) => b.current) ?? null,
+    }),
+  setCommitLog: (commitLog) => set({ commitLog }),
+  setDiffFile: (diffFile) => set({ diffFile }),
+  clearGitState: () =>
+    set({
+      gitStatus: [],
+      branches: [],
+      currentBranch: null,
+      commitLog: [],
+      diffFile: null,
+    }),
+});
+
+// === Studio Slice ===
+
+interface StudioSlice {
+  worktrees: WorktreeInfo[];
+  activeWorktreeId: string | null;
+
+  setWorktrees: (list: WorktreeInfo[]) => void;
+  setActiveWorktreeId: (id: string) => void;
+  clearStudioState: () => void;
+}
+
+const createStudioSlice: StateCreator<WorkspaceStore, [], [], StudioSlice> = (
+  set
+) => ({
+  worktrees: [],
+  activeWorktreeId: null,
+
+  setWorktrees: (worktrees) => set({ worktrees }),
+  setActiveWorktreeId: (activeWorktreeId) => set({ activeWorktreeId }),
+  clearStudioState: () =>
+    set({ worktrees: [], activeWorktreeId: null }),
+});
+
+// === Sidebar Slice ===
+
+export type SidebarView = "files" | "git";
+
+interface SidebarSlice {
+  sidebarView: SidebarView;
+  setSidebarView: (view: SidebarView) => void;
+}
+
+const createSidebarSlice: StateCreator<WorkspaceStore, [], [], SidebarSlice> = (
+  set
+) => ({
+  sidebarView: "files",
+  setSidebarView: (sidebarView) => set({ sidebarView }),
+});
+
+// === Toast Slice ===
+
+export interface Toast {
+  id: string;
+  message: string;
+  type: "info" | "error" | "success";
+}
+
+interface ToastSlice {
+  toasts: Toast[];
+  addToast: (message: string, type: Toast["type"]) => void;
+  removeToast: (id: string) => void;
+}
+
+const createToastSlice: StateCreator<WorkspaceStore, [], [], ToastSlice> = (
+  set
+) => ({
+  toasts: [],
+  addToast: (message, type) => {
+    const id = crypto.randomUUID();
+    set((state) => ({
+      toasts: [...state.toasts, { id, message, type }],
+    }));
+    setTimeout(() => {
+      set((state) => ({
+        toasts: state.toasts.filter((t) => t.id !== id),
+      }));
+    }, 4000);
+  },
+  removeToast: (id) =>
+    set((state) => ({
+      toasts: state.toasts.filter((t) => t.id !== id),
+    })),
+});
+
 // === 統合 Store ===
 
 export type WorkspaceStore = ConnectionSlice &
   TreeSlice &
   FilesSlice &
   TabsSlice &
-  CursorSlice;
+  CursorSlice &
+  GitSlice &
+  StudioSlice &
+  SidebarSlice &
+  ToastSlice;
 
 export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createConnectionSlice(...a),
@@ -205,4 +329,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createFilesSlice(...a),
   ...createTabsSlice(...a),
   ...createCursorSlice(...a),
+  ...createGitSlice(...a),
+  ...createStudioSlice(...a),
+  ...createSidebarSlice(...a),
+  ...createToastSlice(...a),
 }));

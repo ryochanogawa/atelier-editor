@@ -51,4 +51,66 @@ describe("StatusBar", () => {
     render(<StatusBar />);
     expect(screen.getByText("UTF-8")).toBeInTheDocument();
   });
+
+  // Phase 2: Branch display
+
+  it("displays current branch name when set", () => {
+    useWorkspaceStore.setState({
+      currentBranch: { name: "main", current: true, remote: "origin/main" },
+    });
+    render(<StatusBar />);
+    expect(screen.getByText("main")).toBeInTheDocument();
+  });
+
+  it("does not display branch when currentBranch is null", () => {
+    render(<StatusBar />);
+    expect(screen.queryByText(/↑/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/↓/)).not.toBeInTheDocument();
+  });
+
+  it("displays ahead count", () => {
+    useWorkspaceStore.setState({
+      currentBranch: { name: "main", current: true, ahead: 3, behind: 0 },
+    });
+    render(<StatusBar />);
+    expect(screen.getByText("↑3")).toBeInTheDocument();
+  });
+
+  it("displays behind count", () => {
+    useWorkspaceStore.setState({
+      currentBranch: { name: "main", current: true, ahead: 0, behind: 5 },
+    });
+    render(<StatusBar />);
+    expect(screen.getByText("↓5")).toBeInTheDocument();
+  });
+
+  it("displays both ahead and behind counts", () => {
+    useWorkspaceStore.setState({
+      currentBranch: { name: "develop", current: true, ahead: 2, behind: 1 },
+    });
+    render(<StatusBar />);
+    expect(screen.getByText("↑2")).toBeInTheDocument();
+    expect(screen.getByText("↓1")).toBeInTheDocument();
+  });
+
+  it("does not display ahead/behind when zero", () => {
+    useWorkspaceStore.setState({
+      currentBranch: { name: "main", current: true, ahead: 0, behind: 0 },
+    });
+    render(<StatusBar />);
+    expect(screen.queryByText(/↑/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/↓/)).not.toBeInTheDocument();
+  });
+
+  it("clicking branch switches sidebar to git view", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({
+      currentBranch: { name: "main", current: true },
+    });
+    render(<StatusBar />);
+
+    await user.click(screen.getByText("main"));
+    expect(useWorkspaceStore.getState().sidebarView).toBe("git");
+  });
 });
