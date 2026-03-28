@@ -1,0 +1,9 @@
+node_modules/
+.next/
+next-env.d.ts
+dist/
+*.tsbuildinfo
+
+# atelier runtime files
+.atelier/logs/
+.atelier/requirements/
