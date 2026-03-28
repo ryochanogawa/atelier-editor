@@ -163,6 +163,26 @@ describe("workspace store", () => {
 
       expect(getState().openFiles.get(mockFile.path)!.content).toBe("edited");
     });
+
+    it("reloadFile is no-op for unknown path", () => {
+      const before = getState().openFiles;
+      getState().reloadFile("/unknown.ts", "content");
+      expect(getState().openFiles).toBe(before);
+    });
+
+    it("markSaved is no-op for unknown path", () => {
+      const before = getState().openFiles;
+      getState().markSaved("/unknown.ts");
+      expect(getState().openFiles).toBe(before);
+    });
+
+    it("closeFile sets activeTab to null when closing the only tab", () => {
+      getState().openFile(mockFile);
+      getState().addTab(mockFile.path);
+      getState().closeFile(mockFile.path);
+      expect(getState().activeTab).toBeNull();
+      expect(getState().tabOrder).toEqual([]);
+    });
   });
 
   // ── Tabs Slice ──

@@ -52,6 +52,27 @@ describe("StatusBar", () => {
     expect(screen.getByText("UTF-8")).toBeInTheDocument();
   });
 
+  it("does not display language when no file is active", () => {
+    useWorkspaceStore.setState({ activeTab: null });
+    render(<StatusBar />);
+    // Only UTF-8 should be displayed, no language label
+    expect(screen.queryByText("typescript")).not.toBeInTheDocument();
+    expect(screen.queryByText("plaintext")).not.toBeInTheDocument();
+  });
+
+  it("displays green indicator for connected status", () => {
+    useWorkspaceStore.setState({ status: "connected" });
+    const { container } = render(<StatusBar />);
+    const indicator = container.querySelector(".bg-green-500");
+    expect(indicator).toBeInTheDocument();
+  });
+
+  it("displays red indicator for disconnected status", () => {
+    const { container } = render(<StatusBar />);
+    const indicator = container.querySelector(".bg-red-500");
+    expect(indicator).toBeInTheDocument();
+  });
+
   // Phase 2: Branch display
 
   it("displays current branch name when set", () => {
