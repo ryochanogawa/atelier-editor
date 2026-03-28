@@ -29,6 +29,11 @@ afterEach(() => {
     activeWorktreeId: null,
     sidebarView: "files",
     toasts: [],
+    // Phase 3: Terminal slice
+    terminalSessions: [],
+    activeTerminalId: null,
+    terminalVisible: false,
+    terminalHeight: 256,
   });
 });
 

@@ -23,6 +23,7 @@ export function StatusBar() {
   const openFiles = useWorkspaceStore((s) => s.openFiles);
   const currentBranch = useWorkspaceStore((s) => s.currentBranch);
   const setSidebarView = useWorkspaceStore((s) => s.setSidebarView);
+  const toggleTerminal = useWorkspaceStore((s) => s.toggleTerminal);
 
   const file = activeTab ? openFiles.get(activeTab) : undefined;
 
@@ -55,6 +56,17 @@ export function StatusBar() {
         )}
       </div>
       <div className="flex items-center gap-3">
+        <button
+          type="button"
+          className="flex items-center gap-1 hover:opacity-80"
+          onClick={toggleTerminal}
+          title="Toggle Terminal (Ctrl+`)"
+        >
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+            <path d="M6 9l3-3-3-3-.707.707L7.586 6 5.293 8.293 6 9zm4 1H6v1h4v-1z" />
+            <path d="M1 2.5A1.5 1.5 0 012.5 1h11A1.5 1.5 0 0115 2.5v11a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 13.5v-11zM2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11z" />
+          </svg>
+        </button>
         {cursorPosition && (
           <span>
             Ln {cursorPosition.line}, Col {cursorPosition.column}

@@ -20,6 +20,12 @@ export function useKeyboardShortcuts(): void {
         e.preventDefault();
         closeActiveTab();
       }
+
+      // Ctrl+`: ターミナルトグル
+      if (isMod && e.key === "`") {
+        e.preventDefault();
+        useWorkspaceStore.getState().toggleTerminal();
+      }
     }
 
     async function saveActiveFile(): Promise<void> {

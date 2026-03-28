@@ -135,6 +135,28 @@ describe("useKeyboardShortcuts", () => {
     });
   });
 
+  // ── Ctrl+` ──
+
+  describe("terminal toggle shortcut (Ctrl+`)", () => {
+    it("toggles terminal visibility with Ctrl+`", () => {
+      renderHook(() => useKeyboardShortcuts());
+      expect(useWorkspaceStore.getState().terminalVisible).toBe(false);
+
+      fireKey("`", { ctrlKey: true });
+      expect(useWorkspaceStore.getState().terminalVisible).toBe(true);
+
+      fireKey("`", { ctrlKey: true });
+      expect(useWorkspaceStore.getState().terminalVisible).toBe(false);
+    });
+
+    it("toggles terminal visibility with Meta+`", () => {
+      renderHook(() => useKeyboardShortcuts());
+
+      fireKey("`", { metaKey: true });
+      expect(useWorkspaceStore.getState().terminalVisible).toBe(true);
+    });
+  });
+
   // ── Cleanup ──
 
   describe("cleanup", () => {

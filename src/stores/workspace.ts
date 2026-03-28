@@ -311,6 +311,68 @@ const createToastSlice: StateCreator<WorkspaceStore, [], [], ToastSlice> = (
     })),
 });
 
+// === Terminal Slice ===
+
+export interface TerminalSession {
+  sessionId: string;
+  active: boolean;
+}
+
+interface TerminalSlice {
+  terminalSessions: TerminalSession[];
+  activeTerminalId: string | null;
+  terminalVisible: boolean;
+  terminalHeight: number;
+
+  addTerminalSession: (sessionId: string) => void;
+  removeTerminalSession: (sessionId: string) => void;
+  setActiveTerminalId: (id: string | null) => void;
+  setTerminalVisible: (visible: boolean) => void;
+  toggleTerminal: () => void;
+  markTerminalExited: (sessionId: string) => void;
+  setTerminalHeight: (height: number) => void;
+}
+
+const createTerminalSlice: StateCreator<WorkspaceStore, [], [], TerminalSlice> = (
+  set
+) => ({
+  terminalSessions: [],
+  activeTerminalId: null,
+  terminalVisible: false,
+  terminalHeight: 256,
+
+  addTerminalSession: (sessionId) =>
+    set((state) => ({
+      terminalSessions: [...state.terminalSessions, { sessionId, active: true }],
+      activeTerminalId: sessionId,
+      terminalVisible: true,
+    })),
+  removeTerminalSession: (sessionId) =>
+    set((state) => {
+      const sessions = state.terminalSessions.filter((s) => s.sessionId !== sessionId);
+      return {
+        terminalSessions: sessions,
+        activeTerminalId:
+          state.activeTerminalId === sessionId
+            ? sessions.length > 0
+              ? sessions[sessions.length - 1].sessionId
+              : null
+            : state.activeTerminalId,
+        terminalVisible: sessions.length > 0 ? state.terminalVisible : false,
+      };
+    }),
+  setActiveTerminalId: (id) => set({ activeTerminalId: id }),
+  setTerminalVisible: (visible) => set({ terminalVisible: visible }),
+  toggleTerminal: () => set((state) => ({ terminalVisible: !state.terminalVisible })),
+  markTerminalExited: (sessionId) =>
+    set((state) => ({
+      terminalSessions: state.terminalSessions.map((s) =>
+        s.sessionId === sessionId ? { ...s, active: false } : s
+      ),
+    })),
+  setTerminalHeight: (height) => set({ terminalHeight: height }),
+});
+
 // === 統合 Store ===
 
 export type WorkspaceStore = ConnectionSlice &
@@ -321,7 +383,8 @@ export type WorkspaceStore = ConnectionSlice &
   GitSlice &
   StudioSlice &
   SidebarSlice &
-  ToastSlice;
+  ToastSlice &
+  TerminalSlice;
 
 export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createConnectionSlice(...a),
@@ -333,4 +396,5 @@ export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createStudioSlice(...a),
   ...createSidebarSlice(...a),
   ...createToastSlice(...a),
+  ...createTerminalSlice(...a),
 }));

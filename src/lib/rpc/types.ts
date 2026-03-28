@@ -140,6 +140,24 @@ export interface RpcMethodMap {
     params: { worktreeId: string };
     result: { success: boolean };
   };
+
+  // Terminal methods
+  "terminal.create": {
+    params: { cols?: number; rows?: number; shell?: string };
+    result: { sessionId: string };
+  };
+  "terminal.input": {
+    params: { sessionId: string; data: string };
+    result: { success: boolean };
+  };
+  "terminal.resize": {
+    params: { sessionId: string; cols: number; rows: number };
+    result: { success: boolean };
+  };
+  "terminal.kill": {
+    params: { sessionId: string };
+    result: { success: boolean };
+  };
 }
 
 // === 通知型マップ ===
@@ -161,10 +179,22 @@ export interface StudioChangeParams {
   worktreeId: string;
 }
 
+export interface TerminalOutputParams {
+  sessionId: string;
+  data: string;
+}
+
+export interface TerminalExitParams {
+  sessionId: string;
+  exitCode: number;
+}
+
 export interface NotificationMap {
   "fs.watch": FsWatchParams;
   "git.changed": GitChangeParams;
   "studio.changed": StudioChangeParams;
+  "terminal.output": TerminalOutputParams;
+  "terminal.exit": TerminalExitParams;
 }
 
 // === Git ドメイン型 ===

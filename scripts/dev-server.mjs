@@ -3,6 +3,11 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { createRequire } from "node:module";
+import crypto from "node:crypto";
+
+const require = createRequire(import.meta.url);
+const pty = require("node-pty");
 
 const execFileAsync = promisify(execFile);
 
@@ -422,6 +427,86 @@ const studioHandlers = {
   },
 };
 
+// === Terminal (PTY) ハンドラ ===
+
+// セッション管理: sessionId -> { pty, ws (owner client) }
+const terminalSessions = new Map();
+
+const terminalHandlers = {
+  "terminal.create": (params, ws, wss) => {
+    const sessionId = crypto.randomUUID();
+    const shell = params.shell || (process.platform === "win32" ? "powershell.exe" : process.env.SHELL || "/bin/bash");
+    const cols = params.cols || 80;
+    const rows = params.rows || 24;
+
+    const ptyProcess = pty.spawn(shell, [], {
+      name: "xterm-256color",
+      cols,
+      rows,
+      cwd: WORKSPACE_ROOT,
+      env: { ...process.env, TERM: "xterm-256color" },
+    });
+
+    ptyProcess.onData((data) => {
+      // ターミナル出力をオーナークライアントに送信
+      const notification = JSON.stringify({
+        jsonrpc: "2.0",
+        method: "terminal.output",
+        params: { sessionId, data },
+      });
+      if (ws.readyState === 1) {
+        ws.send(notification);
+      }
+    });
+
+    ptyProcess.onExit(({ exitCode }) => {
+      const notification = JSON.stringify({
+        jsonrpc: "2.0",
+        method: "terminal.exit",
+        params: { sessionId, exitCode },
+      });
+      if (ws.readyState === 1) {
+        ws.send(notification);
+      }
+      terminalSessions.delete(sessionId);
+    });
+
+    terminalSessions.set(sessionId, { pty: ptyProcess, ws });
+    console.log(`[dev-server] Terminal created: ${sessionId} (shell: ${shell})`);
+
+    return { sessionId };
+  },
+
+  "terminal.input": (params) => {
+    const session = terminalSessions.get(params.sessionId);
+    if (!session) {
+      throw { code: -32602, message: `Terminal session not found: ${params.sessionId}` };
+    }
+    session.pty.write(params.data);
+    return { success: true };
+  },
+
+  "terminal.resize": (params) => {
+    const session = terminalSessions.get(params.sessionId);
+    if (!session) {
+      throw { code: -32602, message: `Terminal session not found: ${params.sessionId}` };
+    }
+    session.pty.resize(params.cols, params.rows);
+    return { success: true };
+  },
+
+  "terminal.kill": (params) => {
+    const session = terminalSessions.get(params.sessionId);
+    if (!session) {
+      throw { code: -32602, message: `Terminal session not found: ${params.sessionId}` };
+    }
+    session.pty.kill();
+    terminalSessions.delete(params.sessionId);
+    console.log(`[dev-server] Terminal killed: ${params.sessionId}`);
+    return { success: true };
+  },
+};
+
 function broadcastNotification(wss, method, params) {
   const msg = JSON.stringify({ jsonrpc: "2.0", method, params });
   for (const client of wss.clients) {
@@ -455,7 +540,7 @@ wss.on("connection", (ws) => {
     const { id, method, params } = request;
     console.log(`[dev-server] → ${method}`, params);
 
-    const allHandlers = { ...handlers, ...gitHandlers, ...studioHandlers };
+    const allHandlers = { ...handlers, ...gitHandlers, ...studioHandlers, ...terminalHandlers };
     const handler = allHandlers[method];
     if (!handler) {
       ws.send(
@@ -483,6 +568,14 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
+    // クライアント切断時にそのクライアントが所有するターミナルセッションをクリーンアップ
+    for (const [sessionId, session] of terminalSessions) {
+      if (session.ws === ws) {
+        session.pty.kill();
+        terminalSessions.delete(sessionId);
+        console.log(`[dev-server] Terminal cleaned up on disconnect: ${sessionId}`);
+      }
+    }
     console.log("[dev-server] Client disconnected");
   });
 });

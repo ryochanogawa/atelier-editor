@@ -113,4 +113,27 @@ describe("StatusBar", () => {
     await user.click(screen.getByText("main"));
     expect(useWorkspaceStore.getState().sidebarView).toBe("git");
   });
+
+  // Phase 3: Terminal toggle button
+
+  describe("terminal toggle button", () => {
+    it("renders terminal toggle button with correct title", () => {
+      render(<StatusBar />);
+      expect(screen.getByTitle("Toggle Terminal (Ctrl+`)")).toBeInTheDocument();
+    });
+
+    it("clicking terminal toggle button toggles terminal visibility", async () => {
+      const { default: userEvent } = await import("@testing-library/user-event");
+      const user = userEvent.setup();
+
+      render(<StatusBar />);
+      expect(useWorkspaceStore.getState().terminalVisible).toBe(false);
+
+      await user.click(screen.getByTitle("Toggle Terminal (Ctrl+`)"));
+      expect(useWorkspaceStore.getState().terminalVisible).toBe(true);
+
+      await user.click(screen.getByTitle("Toggle Terminal (Ctrl+`)"));
+      expect(useWorkspaceStore.getState().terminalVisible).toBe(false);
+    });
+  });
 });
