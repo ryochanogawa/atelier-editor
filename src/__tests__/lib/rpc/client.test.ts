@@ -361,4 +361,121 @@ describe("RpcClient", () => {
       ws.simulateMessage({ jsonrpc: "2.0", id: 99999, result: {} });
     });
   });
+
+  // ── Additional edge cases ──
+
+  describe("exponential backoff", () => {
+    it("caps delay at maxDelay", () => {
+      const client = new RpcClient({
+        url: "ws://localhost:4000",
+        requestTimeout: 5000,
+        reconnect: { enabled: true, maxRetries: 5, baseDelay: 100, maxDelay: 300 },
+      });
+
+      client.connect();
+      MockWS.latest().simulateOpen();
+
+      // Retry 1: delay = 100 * 2^0 = 100ms
+      MockWS.latest().simulateClose();
+      vi.advanceTimersByTime(101);
+      expect(MockWS.instances).toHaveLength(2);
+
+      // Retry 2: delay = 100 * 2^1 = 200ms
+      MockWS.latest().simulateClose();
+      vi.advanceTimersByTime(201);
+      expect(MockWS.instances).toHaveLength(3);
+
+      // Retry 3: delay = min(100 * 2^2 = 400, 300) = 300ms (capped)
+      MockWS.latest().simulateClose();
+      vi.advanceTimersByTime(299);
+      expect(MockWS.instances).toHaveLength(3); // Not yet
+      vi.advanceTimersByTime(2);
+      expect(MockWS.instances).toHaveLength(4); // Now connected
+    });
+  });
+
+  describe("multiple handlers", () => {
+    it("supports multiple notification handlers for same method", () => {
+      const client = createClient();
+      client.connect();
+      const ws = MockWS.latest();
+      ws.simulateOpen();
+
+      const handler1 = vi.fn();
+      const handler2 = vi.fn();
+      client.onNotification("fs.watch", handler1);
+      client.onNotification("fs.watch", handler2);
+
+      ws.simulateMessage({
+        jsonrpc: "2.0",
+        method: "fs.watch",
+        params: { path: "/a", type: "change" },
+      });
+
+      expect(handler1).toHaveBeenCalledOnce();
+      expect(handler2).toHaveBeenCalledOnce();
+    });
+
+    it("supports multiple status handlers", () => {
+      const client = createClient();
+      const handler1 = vi.fn();
+      const handler2 = vi.fn();
+      client.onStatusChange(handler1);
+      client.onStatusChange(handler2);
+
+      handler1.mockClear();
+      handler2.mockClear();
+
+      client.connect();
+      expect(handler1).toHaveBeenCalledWith("connecting");
+      expect(handler2).toHaveBeenCalledWith("connecting");
+    });
+  });
+
+  describe("call edge cases", () => {
+    it("rejects when WebSocket exists but is not OPEN", () => {
+      const client = createClient();
+      client.connect();
+      // ws is still in CONNECTING state (not opened yet)
+
+      expect(
+        client.call("workspace.info", {} as Record<string, never>)
+      ).rejects.toThrow("Not connected");
+    });
+
+    it("getStatus returns current connection status", () => {
+      const client = createClient();
+      expect(client.getStatus()).toBe("disconnected");
+
+      client.connect();
+      expect(client.getStatus()).toBe("connecting");
+
+      MockWS.latest().simulateOpen();
+      expect(client.getStatus()).toBe("connected");
+    });
+  });
+
+  describe("disconnect edge cases", () => {
+    it("clears pending retry timer on disconnect", () => {
+      const client = new RpcClient({
+        url: "ws://localhost:4000",
+        requestTimeout: 5000,
+        reconnect: { enabled: true, maxRetries: 3, baseDelay: 1000, maxDelay: 5000 },
+      });
+
+      client.connect();
+      MockWS.latest().simulateOpen();
+      const countAfterConnect = MockWS.instances.length;
+
+      // Trigger reconnect
+      MockWS.latest().simulateClose();
+
+      // Disconnect before retry timer fires
+      client.disconnect();
+
+      // Advance past retry delay - should NOT create new connection
+      vi.advanceTimersByTime(5000);
+      expect(MockWS.instances.length).toBe(countAfterConnect);
+    });
+  });
 });
