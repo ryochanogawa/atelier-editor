@@ -13,6 +13,9 @@ import type {
   CommissionStatus,
   DevServerStatus,
   ViewportPreset,
+  ChatMessage,
+  ChatStatus,
+  CodeChange,
 } from "@/lib/rpc/types";
 
 // === Connection Slice ===
@@ -266,7 +269,7 @@ const createStudioSlice: StateCreator<WorkspaceStore, [], [], StudioSlice> = (
 
 // === Sidebar Slice ===
 
-export type SidebarView = "files" | "git" | "commission";
+export type SidebarView = "files" | "git" | "commission" | "chat";
 
 interface SidebarSlice {
   sidebarView: SidebarView;
@@ -394,6 +397,8 @@ export interface CommissionStroke {
 
 interface CommissionSlice {
   commissionDefinitions: CommissionDefinition[];
+  commissionDefinitionsLoading: boolean;
+  commissionDefinitionsError: string | null;
   activeCommissionId: string | null;
   commissionStatus: CommissionStatus | null;
   commissionLogs: CommissionLogEntry[];
@@ -407,6 +412,8 @@ interface CommissionSlice {
   } | null;
 
   setCommissionDefinitions: (defs: CommissionDefinition[]) => void;
+  setCommissionDefinitionsLoading: (loading: boolean) => void;
+  setCommissionDefinitionsError: (error: string | null) => void;
   startCommission: (commissionId: string) => void;
   addCommissionLog: (entry: CommissionLogEntry) => void;
   updateCommissionStroke: (stroke: CommissionStroke) => void;
@@ -418,6 +425,8 @@ const createCommissionSlice: StateCreator<WorkspaceStore, [], [], CommissionSlic
   set
 ) => ({
   commissionDefinitions: [],
+  commissionDefinitionsLoading: false,
+  commissionDefinitionsError: null,
   activeCommissionId: null,
   commissionStatus: null,
   commissionLogs: [],
@@ -425,7 +434,12 @@ const createCommissionSlice: StateCreator<WorkspaceStore, [], [], CommissionSlic
   commissionProgress: null,
   commissionResult: null,
 
-  setCommissionDefinitions: (commissionDefinitions) => set({ commissionDefinitions }),
+  setCommissionDefinitions: (commissionDefinitions) =>
+    set({ commissionDefinitions, commissionDefinitionsLoading: false, commissionDefinitionsError: null }),
+  setCommissionDefinitionsLoading: (commissionDefinitionsLoading) =>
+    set({ commissionDefinitionsLoading }),
+  setCommissionDefinitionsError: (commissionDefinitionsError) =>
+    set({ commissionDefinitionsError, commissionDefinitionsLoading: false }),
   startCommission: (commissionId) =>
     set({
       activeCommissionId: commissionId,
@@ -535,6 +549,140 @@ const createPreviewSlice: StateCreator<WorkspaceStore, [], [], PreviewSlice> = (
     }),
 });
 
+// === Chat Slice ===
+
+interface ChatSlice {
+  chatId: string;
+  chatMessages: ChatMessage[];
+  chatStatus: ChatStatus;
+  pendingChanges: CodeChange[];
+
+  addUserMessage: (id: string, content: string) => void;
+  addAssistantMessage: (id: string) => void;
+  appendStreamDelta: (messageId: string, delta: string) => void;
+  finalizeStream: (messageId: string) => void;
+  addCodeChange: (messageId: string, change: CodeChange) => void;
+  setChatStatus: (status: ChatStatus) => void;
+  acceptChange: (changeId: string) => void;
+  rejectChange: (changeId: string) => void;
+  acceptAllChanges: () => void;
+  rejectAllChanges: () => void;
+  clearChat: () => void;
+}
+
+const createChatSlice: StateCreator<WorkspaceStore, [], [], ChatSlice> = (
+  set
+) => ({
+  chatId: crypto.randomUUID(),
+  chatMessages: [],
+  chatStatus: "idle",
+  pendingChanges: [],
+
+  addUserMessage: (id, content) =>
+    set((state) => ({
+      chatMessages: [
+        ...state.chatMessages,
+        { id, role: "user", content, timestamp: new Date().toISOString() },
+      ],
+    })),
+
+  addAssistantMessage: (id) =>
+    set((state) => ({
+      chatMessages: [
+        ...state.chatMessages,
+        { id, role: "assistant", content: "", timestamp: new Date().toISOString() },
+      ],
+      chatStatus: "streaming",
+    })),
+
+  appendStreamDelta: (messageId, delta) =>
+    set((state) => ({
+      chatMessages: state.chatMessages.map((msg) =>
+        msg.id === messageId ? { ...msg, content: msg.content + delta } : msg
+      ),
+    })),
+
+  finalizeStream: (messageId) =>
+    set((state) => ({
+      chatMessages: state.chatMessages.map((msg) =>
+        msg.id === messageId ? { ...msg } : msg
+      ),
+      chatStatus: "idle",
+    })),
+
+  addCodeChange: (messageId, change) =>
+    set((state) => ({
+      chatMessages: state.chatMessages.map((msg) =>
+        msg.id === messageId
+          ? { ...msg, codeChanges: [...(msg.codeChanges ?? []), change] }
+          : msg
+      ),
+      pendingChanges: [...state.pendingChanges, change],
+    })),
+
+  setChatStatus: (chatStatus) => set({ chatStatus }),
+
+  acceptChange: (changeId) =>
+    set((state) => ({
+      pendingChanges: state.pendingChanges.map((c) =>
+        c.changeId === changeId ? { ...c, status: "accepted" } : c
+      ),
+      chatMessages: state.chatMessages.map((msg) => ({
+        ...msg,
+        codeChanges: msg.codeChanges?.map((c) =>
+          c.changeId === changeId ? { ...c, status: "accepted" } : c
+        ),
+      })),
+    })),
+
+  rejectChange: (changeId) =>
+    set((state) => ({
+      pendingChanges: state.pendingChanges.map((c) =>
+        c.changeId === changeId ? { ...c, status: "rejected" } : c
+      ),
+      chatMessages: state.chatMessages.map((msg) => ({
+        ...msg,
+        codeChanges: msg.codeChanges?.map((c) =>
+          c.changeId === changeId ? { ...c, status: "rejected" } : c
+        ),
+      })),
+    })),
+
+  acceptAllChanges: () =>
+    set((state) => ({
+      pendingChanges: state.pendingChanges.map((c) =>
+        c.status === "pending" ? { ...c, status: "accepted" } : c
+      ),
+      chatMessages: state.chatMessages.map((msg) => ({
+        ...msg,
+        codeChanges: msg.codeChanges?.map((c) =>
+          c.status === "pending" ? { ...c, status: "accepted" } : c
+        ),
+      })),
+    })),
+
+  rejectAllChanges: () =>
+    set((state) => ({
+      pendingChanges: state.pendingChanges.map((c) =>
+        c.status === "pending" ? { ...c, status: "rejected" } : c
+      ),
+      chatMessages: state.chatMessages.map((msg) => ({
+        ...msg,
+        codeChanges: msg.codeChanges?.map((c) =>
+          c.status === "pending" ? { ...c, status: "rejected" } : c
+        ),
+      })),
+    })),
+
+  clearChat: () =>
+    set({
+      chatId: crypto.randomUUID(),
+      chatMessages: [],
+      chatStatus: "idle",
+      pendingChanges: [],
+    }),
+});
+
 // === 統合 Store ===
 
 export type WorkspaceStore = ConnectionSlice &
@@ -548,7 +696,8 @@ export type WorkspaceStore = ConnectionSlice &
   ToastSlice &
   TerminalSlice &
   CommissionSlice &
-  PreviewSlice;
+  PreviewSlice &
+  ChatSlice;
 
 export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createConnectionSlice(...a),
@@ -563,4 +712,5 @@ export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createTerminalSlice(...a),
   ...createCommissionSlice(...a),
   ...createPreviewSlice(...a),
+  ...createChatSlice(...a),
 }));

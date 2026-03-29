@@ -199,6 +199,16 @@ export interface RpcMethodMap {
       progress?: number | null;
     };
   };
+
+  // Chat methods
+  "chat.send": {
+    params: { chatId: string; message: string; context: ChatContext };
+    result: { messageId: string };
+  };
+  "chat.abort": {
+    params: { chatId: string };
+    result: { success: boolean };
+  };
 }
 
 // === 通知型マップ ===
@@ -253,6 +263,8 @@ export interface NotificationMap {
   "commission.completed": CommissionCompletedParams;
   "preview.statusChange": PreviewStatusChangeParams;
   "preview.log": PreviewLogParams;
+  "chat.stream": ChatStreamParams;
+  "chat.codeChange": ChatCodeChangeParams;
 }
 
 // === Git ドメイン型 ===
@@ -288,10 +300,18 @@ export interface GitLogEntry {
 
 // === Commission ドメイン型 ===
 
+export interface CommissionParamSchema {
+  type: string;
+  description?: string;
+  required?: boolean;
+  default?: unknown;
+  enum?: unknown[];
+}
+
 export interface CommissionDefinition {
   name: string;
   description: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, CommissionParamSchema>;
 }
 
 export type CommissionStatus = "running" | "completed" | "failed" | "aborted";
@@ -338,6 +358,59 @@ export interface ViewportPreset {
   name: string;
   width: number;
   height: number;
+}
+
+// === Chat ドメイン型 ===
+
+export type ChatStatus = "idle" | "sending" | "streaming" | "error";
+
+export interface ChatContext {
+  activeFile?: {
+    path: string;
+    content: string;
+    language?: string;
+  };
+  cursorPosition?: { line: number; column: number };
+  selection?: {
+    startLine: number;
+    startColumn: number;
+    endLine: number;
+    endColumn: number;
+  };
+  openFiles?: string[];
+  gitChangedFiles?: string[];
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  codeChanges?: CodeChange[];
+  timestamp: string;
+}
+
+export interface CodeChange {
+  changeId: string;
+  filePath: string;
+  original: string;
+  modified: string;
+  status: "pending" | "accepted" | "rejected";
+}
+
+export interface ChatStreamParams {
+  chatId: string;
+  messageId: string;
+  delta: string;
+  done: boolean;
+}
+
+export interface ChatCodeChangeParams {
+  chatId: string;
+  messageId: string;
+  changeId: string;
+  filePath: string;
+  original: string;
+  modified: string;
 }
 
 // === 接続状態 ===

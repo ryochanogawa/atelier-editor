@@ -12,8 +12,11 @@ const mockDefinitions: CommissionDefinition[] = [
 describe("CommissionSelector", () => {
   const defaultProps = {
     definitions: mockDefinitions,
+    loading: false,
+    error: null as string | null,
     onRun: vi.fn(),
     onAbort: vi.fn(),
+    onRetry: vi.fn(),
     isRunning: false,
   };
 
@@ -104,11 +107,54 @@ describe("CommissionSelector", () => {
     expect(screen.queryByText("Build the project")).not.toBeInTheDocument();
   });
 
-  it("renders empty select when no definitions provided", () => {
+  it("shows empty message when no definitions provided", () => {
     render(<CommissionSelector {...defaultProps} definitions={[]} />);
-    // Only the placeholder option
-    const options = screen.getAllByRole("option");
-    expect(options).toHaveLength(1);
-    expect(options[0]).toHaveTextContent("Select a commission...");
+    expect(screen.getByText("No commissions available")).toBeInTheDocument();
+  });
+
+  it("shows loading state", () => {
+    render(<CommissionSelector {...defaultProps} loading={true} />);
+    expect(screen.getByText("Loading commissions...")).toBeInTheDocument();
+  });
+
+  it("shows error state with retry button", async () => {
+    const user = userEvent.setup();
+    const onRetry = vi.fn();
+    render(<CommissionSelector {...defaultProps} error="Network error" onRetry={onRetry} />);
+    expect(screen.getByText("Network error")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("resets selection when selected commission is removed from definitions", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<CommissionSelector {...defaultProps} />);
+
+    await user.selectOptions(screen.getByRole("combobox"), "build");
+    expect(screen.getByRole("button", { name: "Run Commission" })).toBeEnabled();
+
+    // definitionsからbuildが消えた場合、selectionがリセットされる
+    const newDefs: CommissionDefinition[] = [
+      { name: "deploy", description: "Deploy to production" },
+    ];
+    rerender(<CommissionSelector {...defaultProps} definitions={newDefs} />);
+    expect(screen.getByRole("button", { name: "Run Commission" })).toBeDisabled();
+  });
+
+  it("keeps selection when selected commission still exists in new definitions", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<CommissionSelector {...defaultProps} />);
+
+    await user.selectOptions(screen.getByRole("combobox"), "build");
+    expect(screen.getByRole("button", { name: "Run Commission" })).toBeEnabled();
+
+    // definitionsが変わってもbuildが残っていればselectionを維持
+    const newDefs: CommissionDefinition[] = [
+      { name: "build", description: "Build the project (updated)" },
+      { name: "deploy", description: "Deploy to production" },
+    ];
+    rerender(<CommissionSelector {...defaultProps} definitions={newDefs} />);
+    expect(screen.getByRole("button", { name: "Run Commission" })).toBeEnabled();
   });
 });

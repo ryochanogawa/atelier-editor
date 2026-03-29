@@ -12,6 +12,8 @@ import type {
   CommissionCompletedParams,
   PreviewStatusChangeParams,
   PreviewLogParams,
+  ChatStreamParams,
+  ChatCodeChangeParams,
 } from "@/lib/rpc/types";
 
 export function useConnection(): void {
@@ -98,6 +100,30 @@ export function useConnection(): void {
       store().addPreviewLog(params.line);
     });
 
+    const unsubChatStream = client.onNotification("chat.stream", (params: ChatStreamParams) => {
+      const { chatId } = store();
+      if (params.chatId !== chatId) return;
+
+      if (params.done) {
+        store().finalizeStream(params.messageId);
+      } else {
+        store().appendStreamDelta(params.messageId, params.delta);
+      }
+    });
+
+    const unsubChatCodeChange = client.onNotification("chat.codeChange", (params: ChatCodeChangeParams) => {
+      const { chatId } = store();
+      if (params.chatId !== chatId) return;
+
+      store().addCodeChange(params.messageId, {
+        changeId: params.changeId,
+        filePath: params.filePath,
+        original: params.original,
+        modified: params.modified,
+        status: "pending",
+      });
+    });
+
     async function initWorkspace(): Promise<void> {
       try {
         const [info, tree, gitStatus, branches, worktrees] = await Promise.all([
@@ -117,6 +143,8 @@ export function useConnection(): void {
         if (mainWorktree) {
           store().setActiveWorktreeId(mainWorktree.id);
         }
+
+        // Commission一覧の初期取得はCommissionPanelに委譲（二重フェッチ防止）
       } catch (err) {
         console.error("Failed to initialize workspace:", err);
       }
@@ -166,6 +194,8 @@ export function useConnection(): void {
       unsubCommissionCompleted();
       unsubPreviewStatus();
       unsubPreviewLog();
+      unsubChatStream();
+      unsubChatCodeChange();
       client.disconnect();
     };
   }, []);

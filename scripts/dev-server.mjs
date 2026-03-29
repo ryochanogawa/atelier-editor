@@ -676,6 +676,286 @@ const previewHandlers = {
   },
 };
 
+// === Commission ハンドラ ===
+
+const mockCommissionDefinitions = [
+  {
+    name: "code-review",
+    description: "AI-powered code review for the current worktree changes",
+    params: {
+      scope: { type: "string", description: "Review scope (all, staged, file)", default: "all" },
+      severity: { type: "string", description: "Minimum severity level", enum: ["info", "warning", "error"], default: "info" },
+    },
+  },
+  {
+    name: "generate-tests",
+    description: "Generate unit tests for modified files",
+    params: {
+      framework: { type: "string", description: "Test framework to use", required: true },
+      coverage: { type: "number", description: "Target coverage percentage", default: 80 },
+    },
+  },
+  {
+    name: "refactor",
+    description: "AI-assisted refactoring of selected code",
+    params: {
+      strategy: { type: "string", description: "Refactoring strategy", enum: ["extract", "inline", "rename"], required: true },
+    },
+  },
+];
+
+const activeCommissions = new Map();
+
+const commissionHandlers = {
+  "commission.list": (_params) => {
+    return mockCommissionDefinitions;
+  },
+
+  "commission.run": (params, ws, wss) => {
+    const commissionId = `comm_${crypto.randomUUID().slice(0, 8)}`;
+    const commission = {
+      id: commissionId,
+      name: params.commissionName,
+      status: "running",
+      ws,
+    };
+    activeCommissions.set(commissionId, commission);
+
+    // 進捗通知のシミュレーション
+    simulateCommissionProgress(wss, commissionId, params.commissionName);
+
+    return { commissionId };
+  },
+
+  "commission.abort": (params) => {
+    const commission = activeCommissions.get(params.commissionId);
+    if (!commission) {
+      throw { code: -32602, message: "Commission not found" };
+    }
+    commission.status = "aborted";
+    return { success: true };
+  },
+
+  "commission.status": (params) => {
+    const commission = activeCommissions.get(params.commissionId);
+    if (!commission) {
+      throw { code: -32602, message: "Commission not found" };
+    }
+    return {
+      commissionId: params.commissionId,
+      status: commission.status,
+      phase: commission.phase ?? null,
+      progress: commission.progress ?? null,
+    };
+  },
+};
+
+function simulateCommissionProgress(wss, commissionId, commissionName) {
+  const phases = [
+    { phase: "analyzing", messages: ["Analyzing workspace...", "Scanning files...", "Building dependency graph..."], duration: 1500 },
+    { phase: "generating", messages: ["Generating changes...", `Running ${commissionName}...`, "Processing results..."], duration: 2000 },
+    { phase: "applying", messages: ["Applying changes...", "Writing files...", "Verifying output..."], duration: 1000 },
+  ];
+
+  const strokes = [
+    { strokeId: "stroke_1", strokeName: "Analysis", delay: 200 },
+    { strokeId: "stroke_2", strokeName: "Generation", delay: 1800 },
+    { strokeId: "stroke_3", strokeName: "Application", delay: 3800 },
+  ];
+
+  let totalDelay = 0;
+  let messageIndex = 0;
+  const totalMessages = phases.reduce((sum, p) => sum + p.messages.length, 0);
+
+  // Stroke通知
+  for (const stroke of strokes) {
+    setTimeout(() => {
+      const commission = activeCommissions.get(commissionId);
+      if (!commission || commission.status === "aborted") return;
+      broadcastNotification(wss, "commission.stroke", {
+        commissionId,
+        strokeId: stroke.strokeId,
+        strokeName: stroke.strokeName,
+        status: "running",
+      });
+    }, stroke.delay);
+  }
+
+  // Phase/Progress通知
+  for (const phase of phases) {
+    const msgInterval = phase.duration / phase.messages.length;
+    for (const message of phase.messages) {
+      const delay = totalDelay;
+      const progress = Math.round((messageIndex / totalMessages) * 100);
+      setTimeout(() => {
+        const commission = activeCommissions.get(commissionId);
+        if (!commission || commission.status === "aborted") {
+          if (commission?.status === "aborted") {
+            broadcastNotification(wss, "commission.completed", {
+              commissionId,
+              status: "aborted",
+            });
+            activeCommissions.delete(commissionId);
+          }
+          return;
+        }
+        commission.phase = phase.phase;
+        commission.progress = progress;
+        broadcastNotification(wss, "commission.progress", {
+          commissionId,
+          phase: phase.phase,
+          message,
+          progress,
+          timestamp: new Date().toISOString(),
+        });
+      }, delay);
+      totalDelay += msgInterval;
+      messageIndex++;
+    }
+  }
+
+  // Stroke完了通知
+  setTimeout(() => {
+    const commission = activeCommissions.get(commissionId);
+    if (!commission || commission.status === "aborted") return;
+    for (const stroke of strokes) {
+      broadcastNotification(wss, "commission.stroke", {
+        commissionId,
+        strokeId: stroke.strokeId,
+        strokeName: stroke.strokeName,
+        status: "completed",
+      });
+    }
+  }, totalDelay - 200);
+
+  // 完了通知
+  setTimeout(() => {
+    const commission = activeCommissions.get(commissionId);
+    if (!commission || commission.status === "aborted") return;
+    commission.status = "completed";
+    broadcastNotification(wss, "commission.completed", {
+      commissionId,
+      status: "success",
+      result: {
+        changedFiles: ["src/components/Example.tsx", "src/utils/helper.ts", "src/__tests__/example.test.ts"],
+        summary: `${commissionName} completed successfully. 3 files changed.`,
+      },
+    });
+    activeCommissions.delete(commissionId);
+  }, totalDelay + 500);
+}
+
+// === Chat ハンドラ ===
+
+const activeChatStreams = new Map(); // chatId -> { aborted }
+
+const chatHandlers = {
+  "chat.send": (params, ws, wss) => {
+    const { chatId, message, context } = params;
+    const messageId = `msg_${crypto.randomUUID().slice(0, 8)}`;
+
+    // Abort any previous stream for this chat
+    const prev = activeChatStreams.get(chatId);
+    if (prev) prev.aborted = true;
+
+    const state = { aborted: false };
+    activeChatStreams.set(chatId, state);
+
+    // Simulate AI response asynchronously
+    simulateChatResponse(ws, chatId, messageId, message, context, state);
+
+    return { messageId };
+  },
+
+  "chat.abort": (params) => {
+    const state = activeChatStreams.get(params.chatId);
+    if (state) {
+      state.aborted = true;
+      activeChatStreams.delete(params.chatId);
+    }
+    return { success: true };
+  },
+};
+
+function simulateChatResponse(ws, chatId, messageId, userMessage, context, state) {
+  // Generate a contextual mock response
+  const activeFile = context?.activeFile?.path ?? "unknown file";
+  const language = context?.activeFile?.language ?? "code";
+
+  const mockResponses = [
+    {
+      text: `I can see you're working on \`${activeFile}\`. Here's a suggestion to improve the code:\n\nThe current implementation can be optimized by extracting the repeated logic into a helper function.\n\n\`\`\`${language}\n// Refactored helper\nfunction processItems(items) {\n  return items\n    .filter(item => item.active)\n    .map(item => ({\n      ...item,\n      processed: true,\n    }));\n}\n\`\`\`\n\nThis approach reduces duplication and improves readability.`,
+      codeChange: context?.activeFile ? {
+        filePath: activeFile,
+        original: (context.activeFile.content ?? "").split("\n").slice(0, 10).join("\n"),
+        modified: (context.activeFile.content ?? "").split("\n").slice(0, 10).join("\n") + "\n\n// AI-suggested improvement\n// TODO: Implement optimization",
+      } : null,
+    },
+    {
+      text: `Based on the cursor position and the file \`${activeFile}\`, here are my observations:\n\n1. **Code structure** looks good overall\n2. Consider adding error handling for edge cases\n3. The function could benefit from type annotations\n\n\`\`\`${language}\ntry {\n  const result = await processData(input);\n  return result;\n} catch (error) {\n  console.error('Processing failed:', error);\n  throw new Error('Failed to process data');\n}\n\`\`\``,
+      codeChange: null,
+    },
+    {
+      text: `Looking at your ${language} code in \`${activeFile}\`, I'd recommend the following changes:\n\n- Add input validation at the function boundary\n- Use early returns to reduce nesting\n- Consider extracting magic numbers into named constants\n\nHere's an improved version:\n\n\`\`\`${language}\nconst MAX_RETRIES = 3;\nconst TIMEOUT_MS = 5000;\n\nexport function fetchWithRetry(url, options = {}) {\n  if (!url) throw new Error('URL is required');\n  \n  return retry(() => fetch(url, {\n    ...options,\n    signal: AbortSignal.timeout(TIMEOUT_MS),\n  }), MAX_RETRIES);\n}\n\`\`\``,
+      codeChange: context?.activeFile ? {
+        filePath: activeFile,
+        original: (context.activeFile.content ?? "").split("\n").slice(0, 5).join("\n"),
+        modified: "// Enhanced with validation and constants\n" + (context.activeFile.content ?? "").split("\n").slice(0, 5).join("\n"),
+      } : null,
+    },
+  ];
+
+  const response = mockResponses[Math.floor(Math.random() * mockResponses.length)];
+  const tokens = response.text.split(/(?<=\s)/); // Split on whitespace boundaries
+
+  let tokenIndex = 0;
+  const interval = setInterval(() => {
+    if (state.aborted || ws.readyState !== 1) {
+      clearInterval(interval);
+      if (ws.readyState === 1 && !state.aborted) {
+        sendNotification(ws, "chat.stream", { chatId, messageId, delta: "", done: true });
+      }
+      activeChatStreams.delete(chatId);
+      return;
+    }
+
+    if (tokenIndex < tokens.length) {
+      // Send 1-3 tokens at a time for realistic streaming
+      const chunk = tokens.slice(tokenIndex, tokenIndex + Math.ceil(Math.random() * 3)).join("");
+      tokenIndex += Math.ceil(Math.random() * 3);
+      sendNotification(ws, "chat.stream", { chatId, messageId, delta: chunk, done: false });
+    } else {
+      clearInterval(interval);
+      sendNotification(ws, "chat.stream", { chatId, messageId, delta: "", done: true });
+
+      // Send code change proposal after stream completes
+      if (response.codeChange) {
+        const changeId = `change_${crypto.randomUUID().slice(0, 8)}`;
+        setTimeout(() => {
+          if (ws.readyState === 1 && !state.aborted) {
+            sendNotification(ws, "chat.codeChange", {
+              chatId,
+              messageId,
+              changeId,
+              filePath: response.codeChange.filePath,
+              original: response.codeChange.original,
+              modified: response.codeChange.modified,
+            });
+          }
+        }, 300);
+      }
+
+      activeChatStreams.delete(chatId);
+    }
+  }, 30 + Math.random() * 50); // 30-80ms per chunk
+}
+
+function sendNotification(ws, method, params) {
+  if (ws.readyState === 1) {
+    ws.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
+  }
+}
+
 function broadcastNotification(wss, method, params) {
   const msg = JSON.stringify({ jsonrpc: "2.0", method, params });
   for (const client of wss.clients) {
@@ -709,7 +989,7 @@ wss.on("connection", (ws) => {
     const { id, method, params } = request;
     console.log(`[dev-server] → ${method}`, params);
 
-    const allHandlers = { ...handlers, ...gitHandlers, ...studioHandlers, ...terminalHandlers, ...previewHandlers };
+    const allHandlers = { ...handlers, ...gitHandlers, ...studioHandlers, ...terminalHandlers, ...previewHandlers, ...commissionHandlers, ...chatHandlers };
     const handler = allHandlers[method];
     if (!handler) {
       ws.send(

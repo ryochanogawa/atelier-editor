@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { CodeChange } from "@/lib/rpc/types";
 
@@ -7,6 +7,10 @@ function getState() {
 }
 
 describe("ChatSlice", () => {
+  beforeEach(() => {
+    getState().clearChat();
+  });
+
   // ── Initial State ──
 
   it("has initial idle status", () => {
@@ -15,10 +19,6 @@ describe("ChatSlice", () => {
 
   it("has empty messages initially", () => {
     expect(getState().chatMessages).toEqual([]);
-  });
-
-  it("has no streaming message initially", () => {
-    expect(getState().streamingMessageId).toBeNull();
   });
 
   it("has empty pending changes initially", () => {
@@ -70,7 +70,6 @@ describe("ChatSlice", () => {
         role: "assistant",
         content: "",
       });
-      expect(getState().streamingMessageId).toBe("asst-1");
       expect(getState().chatStatus).toBe("streaming");
     });
   });
@@ -100,73 +99,48 @@ describe("ChatSlice", () => {
   // ── finalizeStream ──
 
   describe("finalizeStream", () => {
-    it("clears streaming state and sets status to idle", () => {
+    it("sets status to idle", () => {
       getState().addAssistantMessage("asst-1");
       getState().appendStreamDelta("asst-1", "Done");
       getState().finalizeStream("asst-1");
 
-      expect(getState().streamingMessageId).toBeNull();
       expect(getState().chatStatus).toBe("idle");
     });
+  });
 
-    it("attaches codeChanges to the message", () => {
-      const changes: CodeChange[] = [
-        {
-          changeId: "c1",
-          filePath: "/src/app.ts",
-          original: "const a = 1;",
-          modified: "const a = 2;",
-          status: "pending",
-        },
-      ];
+  // ── addCodeChange ──
+
+  describe("addCodeChange", () => {
+    it("attaches codeChanges to the message and pendingChanges", () => {
+      const change: CodeChange = {
+        changeId: "c1",
+        filePath: "/src/app.ts",
+        original: "const a = 1;",
+        modified: "const a = 2;",
+        status: "pending",
+      };
 
       getState().addAssistantMessage("asst-1");
-      getState().finalizeStream("asst-1", changes);
+      getState().addCodeChange("asst-1", change);
 
       const msg = getState().chatMessages.find((m) => m.id === "asst-1");
-      expect(msg?.codeChanges).toEqual(changes);
+      expect(msg?.codeChanges).toEqual([change]);
+      expect(getState().pendingChanges).toHaveLength(1);
+      expect(getState().pendingChanges[0].changeId).toBe("c1");
     });
 
-    it("appends codeChanges to pendingChanges", () => {
-      const changes: CodeChange[] = [
-        {
-          changeId: "c1",
-          filePath: "/src/app.ts",
-          original: "old",
-          modified: "new",
-          status: "pending",
-        },
-        {
-          changeId: "c2",
-          filePath: "/src/lib.ts",
-          original: "old2",
-          modified: "new2",
-          status: "pending",
-        },
-      ];
-
+    it("appends multiple code changes", () => {
       getState().addAssistantMessage("asst-1");
-      getState().finalizeStream("asst-1", changes);
+      getState().addCodeChange("asst-1", {
+        changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending",
+      });
+      getState().addCodeChange("asst-1", {
+        changeId: "c2", filePath: "/b.ts", original: "a", modified: "b", status: "pending",
+      });
 
       expect(getState().pendingChanges).toHaveLength(2);
-      expect(getState().pendingChanges[0].changeId).toBe("c1");
-      expect(getState().pendingChanges[1].changeId).toBe("c2");
-    });
-
-    it("preserves existing pendingChanges when finalizing without codeChanges", () => {
-      // Setup existing pending changes
-      const existing: CodeChange[] = [
-        { changeId: "c0", filePath: "/a.ts", original: "x", modified: "y", status: "pending" },
-      ];
-      getState().addAssistantMessage("asst-0");
-      getState().finalizeStream("asst-0", existing);
-
-      // Finalize another without changes
-      getState().addAssistantMessage("asst-1");
-      getState().finalizeStream("asst-1");
-
-      expect(getState().pendingChanges).toHaveLength(1);
-      expect(getState().pendingChanges[0].changeId).toBe("c0");
+      const msg = getState().chatMessages.find((m) => m.id === "asst-1");
+      expect(msg?.codeChanges).toHaveLength(2);
     });
   });
 
@@ -186,12 +160,13 @@ describe("ChatSlice", () => {
 
   describe("acceptChange", () => {
     it("marks a specific change as accepted", () => {
-      const changes: CodeChange[] = [
-        { changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending" },
-        { changeId: "c2", filePath: "/b.ts", original: "a", modified: "b", status: "pending" },
-      ];
       getState().addAssistantMessage("asst-1");
-      getState().finalizeStream("asst-1", changes);
+      getState().addCodeChange("asst-1", {
+        changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending",
+      });
+      getState().addCodeChange("asst-1", {
+        changeId: "c2", filePath: "/b.ts", original: "a", modified: "b", status: "pending",
+      });
 
       getState().acceptChange("c1");
 
@@ -202,11 +177,10 @@ describe("ChatSlice", () => {
 
   describe("rejectChange", () => {
     it("marks a specific change as rejected", () => {
-      const changes: CodeChange[] = [
-        { changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending" },
-      ];
       getState().addAssistantMessage("asst-1");
-      getState().finalizeStream("asst-1", changes);
+      getState().addCodeChange("asst-1", {
+        changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending",
+      });
 
       getState().rejectChange("c1");
 
@@ -218,12 +192,13 @@ describe("ChatSlice", () => {
 
   describe("acceptAllChanges", () => {
     it("accepts all pending changes", () => {
-      const changes: CodeChange[] = [
-        { changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending" },
-        { changeId: "c2", filePath: "/b.ts", original: "a", modified: "b", status: "pending" },
-      ];
       getState().addAssistantMessage("asst-1");
-      getState().finalizeStream("asst-1", changes);
+      getState().addCodeChange("asst-1", {
+        changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending",
+      });
+      getState().addCodeChange("asst-1", {
+        changeId: "c2", filePath: "/b.ts", original: "a", modified: "b", status: "pending",
+      });
 
       getState().acceptAllChanges();
 
@@ -231,12 +206,13 @@ describe("ChatSlice", () => {
     });
 
     it("does not modify already accepted/rejected changes", () => {
-      const changes: CodeChange[] = [
-        { changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending" },
-        { changeId: "c2", filePath: "/b.ts", original: "a", modified: "b", status: "pending" },
-      ];
       getState().addAssistantMessage("asst-1");
-      getState().finalizeStream("asst-1", changes);
+      getState().addCodeChange("asst-1", {
+        changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending",
+      });
+      getState().addCodeChange("asst-1", {
+        changeId: "c2", filePath: "/b.ts", original: "a", modified: "b", status: "pending",
+      });
 
       getState().rejectChange("c2");
       getState().acceptAllChanges();
@@ -248,12 +224,13 @@ describe("ChatSlice", () => {
 
   describe("rejectAllChanges", () => {
     it("rejects all pending changes", () => {
-      const changes: CodeChange[] = [
-        { changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending" },
-        { changeId: "c2", filePath: "/b.ts", original: "a", modified: "b", status: "pending" },
-      ];
       getState().addAssistantMessage("asst-1");
-      getState().finalizeStream("asst-1", changes);
+      getState().addCodeChange("asst-1", {
+        changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending",
+      });
+      getState().addCodeChange("asst-1", {
+        changeId: "c2", filePath: "/b.ts", original: "a", modified: "b", status: "pending",
+      });
 
       getState().rejectAllChanges();
 
@@ -275,7 +252,6 @@ describe("ChatSlice", () => {
 
       expect(getState().chatMessages).toEqual([]);
       expect(getState().chatStatus).toBe("idle");
-      expect(getState().streamingMessageId).toBeNull();
       expect(getState().pendingChanges).toEqual([]);
       expect(getState().chatId).not.toBe(oldChatId);
     });
