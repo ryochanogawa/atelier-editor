@@ -135,6 +135,44 @@ describe("StatusBar", () => {
     expect(useWorkspaceStore.getState().sidebarView).toBe("git");
   });
 
+  // Phase 5: Preview toggle button
+
+  describe("preview toggle button", () => {
+    it("renders preview toggle button with correct title", () => {
+      render(<StatusBar />);
+      expect(screen.getByTitle("Toggle Preview")).toBeInTheDocument();
+    });
+
+    it("clicking preview toggle button toggles preview visibility", async () => {
+      const { default: userEvent } = await import("@testing-library/user-event");
+      const user = userEvent.setup();
+
+      render(<StatusBar />);
+      expect(useWorkspaceStore.getState().previewVisible).toBe(false);
+
+      await user.click(screen.getByTitle("Toggle Preview"));
+      expect(useWorkspaceStore.getState().previewVisible).toBe(true);
+
+      await user.click(screen.getByTitle("Toggle Preview"));
+      expect(useWorkspaceStore.getState().previewVisible).toBe(false);
+    });
+
+    it("shows green indicator when dev server is running", () => {
+      useWorkspaceStore.setState({ devServerStatus: "running" });
+      const { container } = render(<StatusBar />);
+      // The small green dot next to the preview icon
+      const indicators = container.querySelectorAll(".bg-green-400");
+      expect(indicators.length).toBeGreaterThan(0);
+    });
+
+    it("does not show green indicator when dev server is stopped", () => {
+      useWorkspaceStore.setState({ devServerStatus: "stopped" });
+      const { container } = render(<StatusBar />);
+      const indicators = container.querySelectorAll(".bg-green-400");
+      expect(indicators.length).toBe(0);
+    });
+  });
+
   // Phase 3: Terminal toggle button
 
   describe("terminal toggle button", () => {

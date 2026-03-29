@@ -1,10 +1,11 @@
 import { WebSocketServer } from "ws";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import crypto from "node:crypto";
+import net from "node:net";
 
 const require = createRequire(import.meta.url);
 const pty = require("node-pty");
@@ -397,303 +398,6 @@ const studioHandlers = {
   },
 };
 
-// === Commission ハンドラ ===
-
-const mockCommissions = [
-  {
-    name: "code-review",
-    description: "AIによるコードレビューを実行します。変更されたファイルを分析し、改善提案を行います。",
-    params: {
-      scope: { type: "string", description: "レビュー対象のスコープ (all | staged | file)" },
-    },
-  },
-  {
-    name: "generate-tests",
-    description: "指定されたファイルに対するテストコードを自動生成します。",
-    params: {
-      target: { type: "string", description: "テスト対象のファイルパス" },
-      framework: { type: "string", description: "テストフレームワーク (vitest | jest)" },
-    },
-  },
-  {
-    name: "refactor",
-    description: "コードのリファクタリングを提案・適用します。",
-    params: {
-      target: { type: "string", description: "リファクタリング対象のファイルパス" },
-    },
-  },
-  {
-    name: "documentation",
-    description: "コードからドキュメントを自動生成します。",
-    params: {},
-  },
-];
-
-// 実行中のCommission管理
-const runningCommissions = new Map();
-
-const commissionHandlers = {
-  "commission.list": (_params) => {
-    return mockCommissions;
-  },
-
-  "commission.run": (params, ws, wss) => {
-    const commissionId = `comm-${crypto.randomUUID().slice(0, 8)}`;
-    const { commissionName } = params;
-
-    const def = mockCommissions.find((c) => c.name === commissionName);
-    if (!def) {
-      throw { code: -32602, message: `Commission not found: ${commissionName}` };
-    }
-
-    runningCommissions.set(commissionId, { name: commissionName, status: "running", ws });
-
-    // 非同期で進捗通知をシミュレーション
-    simulateCommissionRun(commissionId, commissionName, ws, wss);
-
-    return { commissionId };
-  },
-
-  "commission.abort": (params) => {
-    const session = runningCommissions.get(params.commissionId);
-    if (!session) {
-      throw { code: -32602, message: `Commission not found: ${params.commissionId}` };
-    }
-    session.status = "aborted";
-    return { success: true };
-  },
-
-  "commission.status": (params) => {
-    const session = runningCommissions.get(params.commissionId);
-    if (!session) {
-      throw { code: -32602, message: `Commission not found: ${params.commissionId}` };
-    }
-    return {
-      commissionId: params.commissionId,
-      status: session.status,
-      phase: session.phase ?? null,
-      progress: session.progress ?? null,
-    };
-  },
-};
-
-function simulateCommissionRun(commissionId, commissionName, ws, wss) {
-  const phases = [
-    { phase: "analyzing", messages: ["Analyzing workspace...", "Scanning files...", "Building dependency graph..."], duration: 1500 },
-    { phase: "generating", messages: ["Generating changes...", "Processing templates...", "Applying transformations..."], duration: 2000 },
-    { phase: "applying", messages: ["Applying changes...", "Writing files...", "Validating results..."], duration: 1000 },
-  ];
-
-  const strokes = [
-    { strokeId: "s1", strokeName: "File Analysis" },
-    { strokeId: "s2", strokeName: "Code Generation" },
-    { strokeId: "s3", strokeName: "Validation" },
-  ];
-
-  let totalMessages = phases.reduce((sum, p) => sum + p.messages.length, 0);
-  let messageIndex = 0;
-  let phaseIndex = 0;
-  let msgInPhase = 0;
-
-  function sendNotification(method, params) {
-    const msg = JSON.stringify({ jsonrpc: "2.0", method, params });
-    if (ws.readyState === 1) {
-      ws.send(msg);
-    }
-  }
-
-  function tick() {
-    const session = runningCommissions.get(commissionId);
-    if (!session || session.status === "aborted") {
-      // 中断された場合
-      sendNotification("commission.completed", {
-        commissionId,
-        status: "aborted",
-      });
-      runningCommissions.delete(commissionId);
-      return;
-    }
-
-    if (phaseIndex >= phases.length) {
-      // 完了
-      sendNotification("commission.completed", {
-        commissionId,
-        status: "success",
-        result: {
-          changedFiles: ["src/components/Example.tsx", "src/utils/helper.ts", "src/__tests__/example.test.ts"],
-          summary: `Commission "${commissionName}" completed successfully. 3 files modified.`,
-        },
-      });
-      session.status = "completed";
-      runningCommissions.delete(commissionId);
-      return;
-    }
-
-    const currentPhase = phases[phaseIndex];
-    session.phase = currentPhase.phase;
-
-    // Stroke通知（フェーズ開始時）
-    if (msgInPhase === 0 && phaseIndex < strokes.length) {
-      // 前のStrokeを完了にする
-      if (phaseIndex > 0) {
-        sendNotification("commission.stroke", {
-          commissionId,
-          ...strokes[phaseIndex - 1],
-          status: "completed",
-        });
-      }
-      sendNotification("commission.stroke", {
-        commissionId,
-        ...strokes[phaseIndex],
-        status: "running",
-      });
-    }
-
-    // 進捗通知
-    messageIndex++;
-    const progress = Math.round((messageIndex / totalMessages) * 100);
-    session.progress = progress;
-
-    sendNotification("commission.progress", {
-      commissionId,
-      phase: currentPhase.phase,
-      message: currentPhase.messages[msgInPhase],
-      progress,
-      timestamp: new Date().toISOString(),
-    });
-
-    msgInPhase++;
-    if (msgInPhase >= currentPhase.messages.length) {
-      phaseIndex++;
-      msgInPhase = 0;
-    }
-
-    const delay = currentPhase.duration / currentPhase.messages.length;
-    setTimeout(tick, delay);
-  }
-
-  // 少し遅延してから開始
-  setTimeout(tick, 300);
-}
-
-// === Chat ハンドラ ===
-
-const activeChatStreams = new Map(); // chatId -> { aborted }
-
-const chatHandlers = {
-  "chat.send": (params, ws, wss) => {
-    const { chatId, message, context } = params;
-    const messageId = crypto.randomUUID();
-
-    // Mark stream as active
-    activeChatStreams.set(chatId, { aborted: false });
-
-    // Simulate AI streaming response
-    simulateChatStream(chatId, messageId, message, context, ws);
-
-    return { messageId };
-  },
-
-  "chat.abort": (params) => {
-    const session = activeChatStreams.get(params.chatId);
-    if (session) {
-      session.aborted = true;
-    }
-    return { success: true };
-  },
-};
-
-function simulateChatStream(chatId, messageId, userMessage, context, ws) {
-  // Generate a mock response based on the user's message and context
-  const activeFile = context?.activeFile;
-  let response;
-  let codeChanges = null;
-
-  if (userMessage.toLowerCase().includes("refactor") && activeFile) {
-    response = `I'll help you refactor the code in \`${activeFile.path}\`.\n\nHere's my suggestion:\n\n\`\`\`${activeFile.language || "typescript"}\n// Refactored version\n${activeFile.content ? activeFile.content.slice(0, 200) + "\n// ... (refactored)" : "// refactored code here"}\n\`\`\`\n\nI've proposed changes to the file. You can review the diff and accept or reject the changes.`;
-
-    if (activeFile.content) {
-      codeChanges = [
-        {
-          changeId: crypto.randomUUID(),
-          filePath: activeFile.path,
-          original: activeFile.content,
-          modified: activeFile.content.replace(
-            /\/\/ .*/,
-            "// Refactored by AI assistant"
-          ),
-          status: "pending",
-        },
-      ];
-    }
-  } else if (userMessage.toLowerCase().includes("explain") && activeFile) {
-    response = `Let me explain the code in \`${activeFile.path}\`.\n\nThis file contains ${activeFile.language || "code"} that appears to be part of the project's ${activeFile.path.includes("component") ? "UI component" : "module"} layer.\n\nKey observations:\n- The file is written in ${activeFile.language || "an unspecified language"}\n- It's located at \`${activeFile.path}\`\n${context?.cursorPosition ? `- Your cursor is at line ${context.cursorPosition.line}, column ${context.cursorPosition.column}` : ""}\n\nWould you like me to dive deeper into any specific part?`;
-  } else if (userMessage.toLowerCase().includes("fix") && activeFile) {
-    response = `I'll analyze \`${activeFile.path}\` for potential issues.\n\nHere are the improvements I'd suggest:\n\n1. **Type safety** — Ensure all function parameters have explicit types\n2. **Error handling** — Add try-catch blocks for async operations\n3. **Performance** — Consider memoizing expensive computations\n\nWould you like me to apply any of these fixes?`;
-  } else {
-    response = `I understand you're asking: "${userMessage}"\n\n${activeFile ? `I can see you're working on \`${activeFile.path}\` (${activeFile.language || "unknown language"}).` : "No file is currently active."}\n\n${context?.openFiles?.length ? `You have ${context.openFiles.length} file(s) open: ${context.openFiles.slice(0, 3).map(f => `\`${f}\``).join(", ")}${context.openFiles.length > 3 ? "..." : ""}` : ""}\n\n${context?.gitChangedFiles?.length ? `There are ${context.gitChangedFiles.length} uncommitted change(s).` : ""}\n\nHow can I help you with your code?`;
-  }
-
-  // Stream the response token by token (word by word)
-  const words = response.split(/(?<=\s)/);
-  let wordIndex = 0;
-
-  function sendChunk() {
-    const session = activeChatStreams.get(chatId);
-    if (!session || session.aborted) {
-      // Send final done signal on abort
-      const msg = JSON.stringify({
-        jsonrpc: "2.0",
-        method: "chat.stream",
-        params: { chatId, messageId, delta: "", done: true },
-      });
-      if (ws.readyState === 1) ws.send(msg);
-      activeChatStreams.delete(chatId);
-      return;
-    }
-
-    if (wordIndex >= words.length) {
-      // Stream complete — send done with any code changes
-      const msg = JSON.stringify({
-        jsonrpc: "2.0",
-        method: "chat.stream",
-        params: {
-          chatId,
-          messageId,
-          delta: "",
-          done: true,
-          codeChanges: codeChanges ?? undefined,
-        },
-      });
-      if (ws.readyState === 1) ws.send(msg);
-      activeChatStreams.delete(chatId);
-      return;
-    }
-
-    // Send next word(s)
-    const batchSize = Math.min(3, words.length - wordIndex);
-    let delta = "";
-    for (let i = 0; i < batchSize; i++) {
-      delta += words[wordIndex + i];
-    }
-    wordIndex += batchSize;
-
-    const msg = JSON.stringify({
-      jsonrpc: "2.0",
-      method: "chat.stream",
-      params: { chatId, messageId, delta, done: false },
-    });
-    if (ws.readyState === 1) ws.send(msg);
-
-    // Random delay between 30-80ms per chunk for realistic streaming
-    const delay = 30 + Math.random() * 50;
-    setTimeout(sendChunk, delay);
-  }
-
-  // Start streaming after a small initial delay
-  setTimeout(sendChunk, 200);
-}
-
 // === Terminal (PTY) ハンドラ ===
 
 // セッション管理: sessionId -> { pty, ws (owner client) }
@@ -774,6 +478,204 @@ const terminalHandlers = {
   },
 };
 
+// === Preview (Dev Server) ハンドラ ===
+
+// dev server 状態管理
+let devServerProcess = null;
+let devServerStatus = "stopped"; // stopped | starting | running | error
+let devServerPort = null;
+let devServerUrl = null;
+let devServerIdleTimer = null;
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+function resetIdleTimer(wss) {
+  if (devServerIdleTimer) clearTimeout(devServerIdleTimer);
+  if (devServerStatus === "running") {
+    devServerIdleTimer = setTimeout(() => {
+      console.log("[dev-server] Idle timeout — stopping preview dev server");
+      stopDevServer(wss);
+    }, IDLE_TIMEOUT_MS);
+  }
+}
+
+async function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(0, () => {
+      const port = server.address().port;
+      server.close(() => resolve(port));
+    });
+    server.on("error", reject);
+  });
+}
+
+async function startDevServer(wss) {
+  if (devServerProcess) {
+    return { url: devServerUrl, port: devServerPort };
+  }
+
+  devServerStatus = "starting";
+  broadcastNotification(wss, "preview.statusChange", {
+    status: "starting",
+    url: null,
+    port: null,
+  });
+
+  try {
+    const port = await findFreePort();
+    devServerPort = port;
+
+    const viteProcess = spawn("npx", ["vite", "--port", String(port), "--host", "localhost"], {
+      cwd: WORKSPACE_ROOT,
+      env: { ...process.env },
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: true,
+    });
+
+    devServerProcess = viteProcess;
+
+    let resolved = false;
+
+    const readyPromise = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          reject(new Error("Dev server startup timed out (5s)"));
+        }
+      }, 5000);
+
+      function onData(data) {
+        const line = data.toString();
+        broadcastNotification(wss, "preview.log", {
+          line: line.trim(),
+          timestamp: new Date().toISOString(),
+        });
+
+        // Vite outputs "Local: http://localhost:PORT/" when ready
+        const urlMatch = line.match(/Local:\s+(https?:\/\/[^\s]+)/);
+        if (urlMatch && !resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          resolve(urlMatch[1]);
+        }
+      }
+
+      viteProcess.stdout.on("data", onData);
+      viteProcess.stderr.on("data", (data) => {
+        const line = data.toString();
+        broadcastNotification(wss, "preview.log", {
+          line: line.trim(),
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      viteProcess.on("error", (err) => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          reject(err);
+        }
+      });
+
+      viteProcess.on("exit", (code) => {
+        devServerProcess = null;
+        devServerStatus = "stopped";
+        devServerPort = null;
+        devServerUrl = null;
+        if (devServerIdleTimer) clearTimeout(devServerIdleTimer);
+
+        broadcastNotification(wss, "preview.statusChange", {
+          status: code === 0 || code === null ? "stopped" : "error",
+          url: null,
+          port: null,
+          ...(code !== 0 && code !== null ? { error: `Process exited with code ${code}` } : {}),
+        });
+
+        if (!resolved) {
+          resolved = true;
+          reject(new Error(`Dev server exited with code ${code}`));
+        }
+      });
+    });
+
+    const url = await readyPromise;
+    devServerUrl = url;
+    devServerStatus = "running";
+
+    broadcastNotification(wss, "preview.statusChange", {
+      status: "running",
+      url,
+      port,
+    });
+
+    resetIdleTimer(wss);
+    console.log(`[dev-server] Preview dev server running at ${url}`);
+
+    return { url, port };
+  } catch (err) {
+    devServerStatus = "error";
+    if (devServerProcess) {
+      devServerProcess.kill();
+      devServerProcess = null;
+    }
+    devServerPort = null;
+    devServerUrl = null;
+
+    broadcastNotification(wss, "preview.statusChange", {
+      status: "error",
+      url: null,
+      port: null,
+      error: err.message,
+    });
+
+    throw { code: -32603, message: `Failed to start dev server: ${err.message}` };
+  }
+}
+
+function stopDevServer(wss) {
+  if (devServerIdleTimer) {
+    clearTimeout(devServerIdleTimer);
+    devServerIdleTimer = null;
+  }
+
+  if (devServerProcess) {
+    devServerProcess.kill();
+    devServerProcess = null;
+  }
+
+  devServerStatus = "stopped";
+  devServerPort = null;
+  devServerUrl = null;
+
+  broadcastNotification(wss, "preview.statusChange", {
+    status: "stopped",
+    url: null,
+    port: null,
+  });
+
+  console.log("[dev-server] Preview dev server stopped");
+  return { success: true };
+}
+
+const previewHandlers = {
+  "preview.start": async (_params, _ws, wss) => {
+    resetIdleTimer(wss);
+    return await startDevServer(wss);
+  },
+
+  "preview.stop": (_params, _ws, wss) => {
+    return stopDevServer(wss);
+  },
+
+  "preview.status": () => {
+    return {
+      status: devServerStatus,
+      url: devServerUrl,
+      port: devServerPort,
+    };
+  },
+};
+
 function broadcastNotification(wss, method, params) {
   const msg = JSON.stringify({ jsonrpc: "2.0", method, params });
   for (const client of wss.clients) {
@@ -807,7 +709,7 @@ wss.on("connection", (ws) => {
     const { id, method, params } = request;
     console.log(`[dev-server] → ${method}`, params);
 
-    const allHandlers = { ...handlers, ...gitHandlers, ...studioHandlers, ...commissionHandlers, ...chatHandlers, ...terminalHandlers };
+    const allHandlers = { ...handlers, ...gitHandlers, ...studioHandlers, ...terminalHandlers, ...previewHandlers };
     const handler = allHandlers[method];
     if (!handler) {
       ws.send(
@@ -845,6 +747,21 @@ wss.on("connection", (ws) => {
     }
     console.log("[dev-server] Client disconnected");
   });
+});
+
+// クリーンアップ: プロセス終了時にdev serverを停止
+process.on("SIGINT", () => {
+  if (devServerProcess) {
+    devServerProcess.kill();
+  }
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  if (devServerProcess) {
+    devServerProcess.kill();
+  }
+  process.exit(0);
 });
 
 console.log(`[dev-server] WebSocket server running on ws://localhost:${PORT}`);

@@ -159,6 +159,24 @@ export interface RpcMethodMap {
     result: { success: boolean };
   };
 
+  // Preview (dev server) methods
+  "preview.start": {
+    params: { commissionId?: string };
+    result: { url: string; port: number };
+  };
+  "preview.stop": {
+    params: { commissionId?: string };
+    result: { success: boolean };
+  };
+  "preview.status": {
+    params: { commissionId?: string };
+    result: {
+      status: DevServerStatus;
+      url: string | null;
+      port: number | null;
+    };
+  };
+
   // Commission methods
   "commission.list": {
     params: { worktreeId?: string };
@@ -180,20 +198,6 @@ export interface RpcMethodMap {
       phase?: string;
       progress?: number | null;
     };
-  };
-
-  // Chat methods
-  "chat.send": {
-    params: {
-      chatId: string;
-      message: string;
-      context: ChatContext;
-    };
-    result: { messageId: string };
-  };
-  "chat.abort": {
-    params: { chatId: string };
-    result: { success: boolean };
   };
 }
 
@@ -226,6 +230,18 @@ export interface TerminalExitParams {
   exitCode: number;
 }
 
+export interface PreviewStatusChangeParams {
+  status: DevServerStatus;
+  url: string | null;
+  port: number | null;
+  error?: string;
+}
+
+export interface PreviewLogParams {
+  line: string;
+  timestamp: string;
+}
+
 export interface NotificationMap {
   "fs.watch": FsWatchParams;
   "git.changed": GitChangeParams;
@@ -235,7 +251,8 @@ export interface NotificationMap {
   "commission.progress": CommissionProgressParams;
   "commission.stroke": CommissionStrokeParams;
   "commission.completed": CommissionCompletedParams;
-  "chat.stream": ChatStreamParams;
+  "preview.statusChange": PreviewStatusChangeParams;
+  "preview.log": PreviewLogParams;
 }
 
 // === Git ドメイン型 ===
@@ -313,55 +330,14 @@ export interface WorktreeInfo {
   isMain: boolean;
 }
 
-// === Chat ドメイン型 ===
+// === Preview ドメイン型 ===
 
-export type ChatRole = "user" | "assistant";
+export type DevServerStatus = "stopped" | "starting" | "running" | "error";
 
-export type ChatStatus = "idle" | "sending" | "streaming" | "error";
-
-export interface ChatMessage {
-  id: string;
-  role: ChatRole;
-  content: string;
-  timestamp: string;
-  codeChanges?: CodeChange[];
-}
-
-export interface CodeChange {
-  changeId: string;
-  filePath: string;
-  original: string;
-  modified: string;
-  status: "pending" | "accepted" | "rejected";
-}
-
-export interface ChatContext {
-  activeFile?: {
-    path: string;
-    content: string;
-    language: string;
-  };
-  cursorPosition?: {
-    line: number;
-    column: number;
-  };
-  selection?: {
-    startLine: number;
-    startColumn: number;
-    endLine: number;
-    endColumn: number;
-    text: string;
-  };
-  openFiles?: string[];
-  gitChangedFiles?: string[];
-}
-
-export interface ChatStreamParams {
-  chatId: string;
-  messageId: string;
-  delta: string;
-  done: boolean;
-  codeChanges?: CodeChange[];
+export interface ViewportPreset {
+  name: string;
+  width: number;
+  height: number;
 }
 
 // === 接続状態 ===

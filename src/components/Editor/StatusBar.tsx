@@ -24,6 +24,9 @@ export function StatusBar() {
   const currentBranch = useWorkspaceStore((s) => s.currentBranch);
   const setSidebarView = useWorkspaceStore((s) => s.setSidebarView);
   const toggleTerminal = useWorkspaceStore((s) => s.toggleTerminal);
+  const togglePreview = useWorkspaceStore((s) => s.togglePreview);
+  const previewVisible = useWorkspaceStore((s) => s.previewVisible);
+  const devServerStatus = useWorkspaceStore((s) => s.devServerStatus);
 
   const file = activeTab ? openFiles.get(activeTab) : undefined;
 
@@ -56,6 +59,19 @@ export function StatusBar() {
         )}
       </div>
       <div className="flex items-center gap-3">
+        <button
+          type="button"
+          className={`flex items-center gap-1 hover:opacity-80 ${previewVisible ? "text-white" : ""}`}
+          onClick={togglePreview}
+          title="Toggle Preview"
+        >
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+            <path d="M2 3h5v2H3v6h4v2H2a1 1 0 01-1-1V4a1 1 0 011-1zm7 0h5a1 1 0 011 1v8a1 1 0 01-1 1H9v-2h4V5H9V3z" />
+          </svg>
+          {devServerStatus === "running" && (
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-400" />
+          )}
+        </button>
         <button
           type="button"
           className="flex items-center gap-1 hover:opacity-80"

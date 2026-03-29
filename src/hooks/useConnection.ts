@@ -10,7 +10,8 @@ import type {
   CommissionProgressParams,
   CommissionStrokeParams,
   CommissionCompletedParams,
-  ChatStreamParams,
+  PreviewStatusChangeParams,
+  PreviewLogParams,
 } from "@/lib/rpc/types";
 
 export function useConnection(): void {
@@ -85,14 +86,16 @@ export function useConnection(): void {
       }
     });
 
-    const unsubChatStream = client.onNotification("chat.stream", (params: ChatStreamParams) => {
-      const { messageId, delta, done, codeChanges } = params;
-      if (delta) {
-        store().appendStreamDelta(messageId, delta);
+    const unsubPreviewStatus = client.onNotification("preview.statusChange", (params: PreviewStatusChangeParams) => {
+      store().setDevServerStatus(params.status);
+      store().setPreviewUrl(params.url, params.port);
+      if (params.error) {
+        store().setPreviewError(params.error);
       }
-      if (done) {
-        store().finalizeStream(messageId, codeChanges);
-      }
+    });
+
+    const unsubPreviewLog = client.onNotification("preview.log", (params: PreviewLogParams) => {
+      store().addPreviewLog(params.line);
     });
 
     async function initWorkspace(): Promise<void> {
@@ -161,7 +164,8 @@ export function useConnection(): void {
       unsubCommissionProgress();
       unsubCommissionStroke();
       unsubCommissionCompleted();
-      unsubChatStream();
+      unsubPreviewStatus();
+      unsubPreviewLog();
       client.disconnect();
     };
   }, []);

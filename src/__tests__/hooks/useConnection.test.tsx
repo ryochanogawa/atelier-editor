@@ -30,6 +30,8 @@ describe("useConnection", () => {
   let unsubCommissionProgress: ReturnType<typeof vi.fn>;
   let unsubCommissionStroke: ReturnType<typeof vi.fn>;
   let unsubCommissionCompleted: ReturnType<typeof vi.fn>;
+  let unsubPreviewStatus: ReturnType<typeof vi.fn>;
+  let unsubPreviewLog: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     notificationCallbacks = {};
@@ -40,6 +42,8 @@ describe("useConnection", () => {
     unsubCommissionProgress = vi.fn();
     unsubCommissionStroke = vi.fn();
     unsubCommissionCompleted = vi.fn();
+    unsubPreviewStatus = vi.fn();
+    unsubPreviewLog = vi.fn();
 
     mockOnStatusChange.mockImplementation((cb: (status: string) => void) => {
       statusChangeCallback = cb;
@@ -55,6 +59,8 @@ describe("useConnection", () => {
         "commission.progress": unsubCommissionProgress,
         "commission.stroke": unsubCommissionStroke,
         "commission.completed": unsubCommissionCompleted,
+        "preview.statusChange": unsubPreviewStatus,
+        "preview.log": unsubPreviewLog,
       };
       return unsubs[method] ?? vi.fn();
     });
@@ -88,6 +94,8 @@ describe("useConnection", () => {
       expect(methods).toContain("commission.progress");
       expect(methods).toContain("commission.stroke");
       expect(methods).toContain("commission.completed");
+      expect(methods).toContain("preview.statusChange");
+      expect(methods).toContain("preview.log");
     });
   });
 
@@ -594,6 +602,93 @@ describe("useConnection", () => {
     });
   });
 
+  // ── preview.statusChange notification ──
+
+  describe("preview.statusChange notification", () => {
+    it("updates dev server status, url, and port", () => {
+      renderHook(() => useConnection());
+      notificationCallbacks["preview.statusChange"]({
+        status: "running",
+        url: "http://localhost:3000",
+        port: 3000,
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.devServerStatus).toBe("running");
+      expect(state.previewUrl).toBe("http://localhost:3000");
+      expect(state.previewPort).toBe(3000);
+    });
+
+    it("sets preview error when error is present", () => {
+      renderHook(() => useConnection());
+      notificationCallbacks["preview.statusChange"]({
+        status: "error",
+        url: null,
+        port: null,
+        error: "Port already in use",
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.devServerStatus).toBe("error");
+      expect(state.previewError).toBe("Port already in use");
+    });
+
+    it("does not set error when error is absent", () => {
+      renderHook(() => useConnection());
+      notificationCallbacks["preview.statusChange"]({
+        status: "starting",
+        url: null,
+        port: null,
+      });
+
+      expect(useWorkspaceStore.getState().previewError).toBeNull();
+    });
+
+    it("clears url on stop", () => {
+      useWorkspaceStore.setState({
+        devServerStatus: "running",
+        previewUrl: "http://localhost:3000",
+        previewPort: 3000,
+      });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["preview.statusChange"]({
+        status: "stopped",
+        url: null,
+        port: null,
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.devServerStatus).toBe("stopped");
+      expect(state.previewUrl).toBeNull();
+      expect(state.previewPort).toBeNull();
+    });
+  });
+
+  // ── preview.log notification ──
+
+  describe("preview.log notification", () => {
+    it("adds log line to store", () => {
+      renderHook(() => useConnection());
+      notificationCallbacks["preview.log"]({
+        line: "Server started on port 3000",
+        timestamp: "2026-01-01T00:00:00Z",
+      });
+
+      expect(useWorkspaceStore.getState().previewLogs).toEqual([
+        "Server started on port 3000",
+      ]);
+    });
+
+    it("accumulates multiple log lines", () => {
+      renderHook(() => useConnection());
+      notificationCallbacks["preview.log"]({ line: "line-1", timestamp: "t1" });
+      notificationCallbacks["preview.log"]({ line: "line-2", timestamp: "t2" });
+
+      expect(useWorkspaceStore.getState().previewLogs).toEqual(["line-1", "line-2"]);
+    });
+  });
+
   // ── Cleanup ──
 
   describe("cleanup", () => {
@@ -608,6 +703,8 @@ describe("useConnection", () => {
       expect(unsubCommissionProgress).toHaveBeenCalledOnce();
       expect(unsubCommissionStroke).toHaveBeenCalledOnce();
       expect(unsubCommissionCompleted).toHaveBeenCalledOnce();
+      expect(unsubPreviewStatus).toHaveBeenCalledOnce();
+      expect(unsubPreviewLog).toHaveBeenCalledOnce();
       expect(mockDisconnect).toHaveBeenCalledOnce();
     });
   });

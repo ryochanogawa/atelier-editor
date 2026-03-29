@@ -11,9 +11,8 @@ import type {
   WorktreeInfo,
   CommissionDefinition,
   CommissionStatus,
-  ChatMessage,
-  ChatStatus,
-  CodeChange,
+  DevServerStatus,
+  ViewportPreset,
 } from "@/lib/rpc/types";
 
 // === Connection Slice ===
@@ -267,7 +266,7 @@ const createStudioSlice: StateCreator<WorkspaceStore, [], [], StudioSlice> = (
 
 // === Sidebar Slice ===
 
-export type SidebarView = "files" | "git" | "commission" | "chat";
+export type SidebarView = "files" | "git" | "commission";
 
 interface SidebarSlice {
   sidebarView: SidebarView;
@@ -469,124 +468,70 @@ const createCommissionSlice: StateCreator<WorkspaceStore, [], [], CommissionSlic
     }),
 });
 
-// === Chat Slice ===
+// === Preview Slice ===
 
-export interface ChatSlice {
-  chatId: string;
-  chatMessages: ChatMessage[];
-  chatStatus: ChatStatus;
-  streamingMessageId: string | null;
-  pendingChanges: CodeChange[];
+export const VIEWPORT_PRESETS: ViewportPreset[] = [
+  { name: "Mobile", width: 375, height: 667 },
+  { name: "Tablet", width: 768, height: 1024 },
+  { name: "Desktop", width: 1440, height: 900 },
+];
 
-  addUserMessage: (id: string, content: string) => void;
-  addAssistantMessage: (id: string) => void;
-  appendStreamDelta: (messageId: string, delta: string) => void;
-  finalizeStream: (messageId: string, codeChanges?: CodeChange[]) => void;
-  setChatStatus: (status: ChatStatus) => void;
-  acceptChange: (changeId: string) => void;
-  rejectChange: (changeId: string) => void;
-  acceptAllChanges: () => void;
-  rejectAllChanges: () => void;
-  clearChat: () => void;
+interface PreviewSlice {
+  previewVisible: boolean;
+  previewWidth: number;
+  devServerStatus: DevServerStatus;
+  previewUrl: string | null;
+  previewPort: number | null;
+  previewError: string | null;
+  previewLogs: string[];
+  activeViewport: ViewportPreset | null;
+
+  setPreviewVisible: (visible: boolean) => void;
+  togglePreview: () => void;
+  setPreviewWidth: (width: number) => void;
+  setDevServerStatus: (status: DevServerStatus) => void;
+  setPreviewUrl: (url: string | null, port: number | null) => void;
+  setPreviewError: (error: string | null) => void;
+  addPreviewLog: (line: string) => void;
+  clearPreviewLogs: () => void;
+  setActiveViewport: (preset: ViewportPreset | null) => void;
+  resetPreview: () => void;
 }
 
-const createChatSlice: StateCreator<WorkspaceStore, [], [], ChatSlice> = (
-  set,
-  get
+const MAX_PREVIEW_LOGS = 500;
+
+const createPreviewSlice: StateCreator<WorkspaceStore, [], [], PreviewSlice> = (
+  set
 ) => ({
-  chatId: crypto.randomUUID(),
-  chatMessages: [],
-  chatStatus: "idle",
-  streamingMessageId: null,
-  pendingChanges: [],
+  previewVisible: false,
+  previewWidth: 480,
+  devServerStatus: "stopped",
+  previewUrl: null,
+  previewPort: null,
+  previewError: null,
+  previewLogs: [],
+  activeViewport: null,
 
-  addUserMessage: (id, content) =>
-    set((state) => ({
-      chatMessages: [
-        ...state.chatMessages,
-        {
-          id,
-          role: "user",
-          content,
-          timestamp: new Date().toISOString(),
-        },
-      ],
-    })),
-
-  addAssistantMessage: (id) =>
-    set((state) => ({
-      chatMessages: [
-        ...state.chatMessages,
-        {
-          id,
-          role: "assistant",
-          content: "",
-          timestamp: new Date().toISOString(),
-        },
-      ],
-      streamingMessageId: id,
-      chatStatus: "streaming",
-    })),
-
-  appendStreamDelta: (messageId, delta) =>
-    set((state) => ({
-      chatMessages: state.chatMessages.map((m) =>
-        m.id === messageId ? { ...m, content: m.content + delta } : m
-      ),
-    })),
-
-  finalizeStream: (messageId, codeChanges) =>
+  setPreviewVisible: (previewVisible) => set({ previewVisible }),
+  togglePreview: () => set((state) => ({ previewVisible: !state.previewVisible })),
+  setPreviewWidth: (previewWidth) => set({ previewWidth }),
+  setDevServerStatus: (devServerStatus) => set({ devServerStatus }),
+  setPreviewUrl: (previewUrl, previewPort) => set({ previewUrl, previewPort }),
+  setPreviewError: (previewError) => set({ previewError }),
+  addPreviewLog: (line) =>
     set((state) => {
-      const newPendingChanges = codeChanges
-        ? [...state.pendingChanges, ...codeChanges]
-        : state.pendingChanges;
-      return {
-        chatMessages: state.chatMessages.map((m) =>
-          m.id === messageId ? { ...m, codeChanges } : m
-        ),
-        streamingMessageId: null,
-        chatStatus: "idle",
-        pendingChanges: newPendingChanges,
-      };
+      const logs = [...state.previewLogs, line];
+      return { previewLogs: logs.length > MAX_PREVIEW_LOGS ? logs.slice(-MAX_PREVIEW_LOGS) : logs };
     }),
-
-  setChatStatus: (chatStatus) => set({ chatStatus }),
-
-  acceptChange: (changeId) =>
-    set((state) => ({
-      pendingChanges: state.pendingChanges.map((c) =>
-        c.changeId === changeId ? { ...c, status: "accepted" } : c
-      ),
-    })),
-
-  rejectChange: (changeId) =>
-    set((state) => ({
-      pendingChanges: state.pendingChanges.map((c) =>
-        c.changeId === changeId ? { ...c, status: "rejected" } : c
-      ),
-    })),
-
-  acceptAllChanges: () =>
-    set((state) => ({
-      pendingChanges: state.pendingChanges.map((c) =>
-        c.status === "pending" ? { ...c, status: "accepted" } : c
-      ),
-    })),
-
-  rejectAllChanges: () =>
-    set((state) => ({
-      pendingChanges: state.pendingChanges.map((c) =>
-        c.status === "pending" ? { ...c, status: "rejected" } : c
-      ),
-    })),
-
-  clearChat: () =>
+  clearPreviewLogs: () => set({ previewLogs: [] }),
+  setActiveViewport: (activeViewport) => set({ activeViewport }),
+  resetPreview: () =>
     set({
-      chatId: crypto.randomUUID(),
-      chatMessages: [],
-      chatStatus: "idle",
-      streamingMessageId: null,
-      pendingChanges: [],
+      devServerStatus: "stopped",
+      previewUrl: null,
+      previewPort: null,
+      previewError: null,
+      previewLogs: [],
     }),
 });
 
@@ -603,7 +548,7 @@ export type WorkspaceStore = ConnectionSlice &
   ToastSlice &
   TerminalSlice &
   CommissionSlice &
-  ChatSlice;
+  PreviewSlice;
 
 export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createConnectionSlice(...a),
@@ -617,5 +562,5 @@ export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createToastSlice(...a),
   ...createTerminalSlice(...a),
   ...createCommissionSlice(...a),
-  ...createChatSlice(...a),
+  ...createPreviewSlice(...a),
 }));
