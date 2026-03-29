@@ -1,6 +1,6 @@
 import { WebSocketServer } from "ws";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
@@ -37,40 +37,12 @@ function safePath(userPath) {
 // Worktree 管理用の状態
 let activeWorktreeId = "main";
 
-// インメモリファイルシステム
-const fileSystem = {
-  "src/index.ts": {
-    content: `import { greet } from "./utils/greet";\n\nconst message = greet("ATELIER");\nconsole.log(message);\n`,
-    language: "typescript",
-  },
-  "src/utils/greet.ts": {
-    content: `export function greet(name: string): string {\n  return \`Hello, \${name}!\`;\n}\n`,
-    language: "typescript",
-  },
-  "src/types.ts": {
-    content: `export interface Config {\n  name: string;\n  version: string;\n  debug: boolean;\n}\n`,
-    language: "typescript",
-  },
-  "package.json": {
-    content: JSON.stringify(
-      { name: "sample-project", version: "1.0.0", main: "src/index.ts" },
-      null,
-      2
-    ),
-    language: "json",
-  },
-  "README.md": {
-    content: `# Sample Project\n\nThis is a sample project for ATELIER Editor development.\n`,
-    language: "markdown",
-  },
-};
-
 // ファイルツリー構築
-function buildTree(files) {
+function buildTree(filePaths) {
   const root = [];
   const dirs = new Map();
 
-  for (const filePath of Object.keys(files).sort()) {
+  for (const filePath of filePaths.sort()) {
     const parts = filePath.split("/");
     let currentPath = "";
 
@@ -110,45 +82,43 @@ function buildTree(files) {
 // RPC ハンドラ
 const handlers = {
   "workspace.info": () => ({
-    name: "sample-project",
-    rootPath: "/workspace/sample-project",
+    name: path.basename(WORKSPACE_ROOT),
+    rootPath: WORKSPACE_ROOT,
   }),
 
-  "fs.readTree": (_params) => buildTree(fileSystem),
-
-  "fs.readFile": (params) => {
-    const file = fileSystem[params.path];
-    if (!file) {
-      throw { code: -32602, message: `File not found: ${params.path}` };
-    }
-    return {
-      path: params.path,
-      content: file.content,
-      encoding: "utf-8",
-      language: file.language,
-    };
+  "fs.readTree": async (_params) => {
+    const stdout = await git(["ls-files", "--cached", "--others", "--exclude-standard"]);
+    const filePaths = stdout.trim().split("\n").filter(Boolean);
+    return buildTree(filePaths);
   },
 
-  "fs.writeFile": (params, ws, wss) => {
-    const existing = fileSystem[params.path];
-    const isNew = !existing;
-    const language = existing?.language ?? guessLanguage(params.path);
+  "fs.readFile": async (params) => {
+    const absPath = safePath(params.path);
+    try {
+      const content = await readFile(absPath, "utf-8");
+      return {
+        path: params.path,
+        content,
+        encoding: "utf-8",
+        language: guessLanguage(params.path),
+      };
+    } catch (err) {
+      throw { code: -32602, message: `File not found: ${params.path}` };
+    }
+  },
 
-    fileSystem[params.path] = {
-      content: params.content,
-      language,
-    };
+  "fs.writeFile": async (params, ws, wss) => {
+    const absPath = safePath(params.path);
+    const isNew = await readFile(absPath).then(() => false, () => true);
 
-    // fs.watch 通知をブロードキャスト
+    await writeFile(absPath, params.content, "utf-8");
+
+    // fs.watch 通知をブロードキャスト（送信元を除外）
     const notification = JSON.stringify({
       jsonrpc: "2.0",
       method: "fs.watch",
-      params: {
-        path: params.path,
-        type: isNew ? "create" : "change",
-      },
+      params: { path: params.path, type: isNew ? "create" : "change" },
     });
-
     for (const client of wss.clients) {
       if (client !== ws && client.readyState === 1) {
         client.send(notification);
