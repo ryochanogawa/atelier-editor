@@ -7,3 +7,5 @@ dist/
 # atelier runtime files
 .atelier/logs/
 .atelier/requirements/
+.atelier/
+.docs/
