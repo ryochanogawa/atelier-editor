@@ -226,6 +226,28 @@ describe("useConnection", () => {
         expect(mockCall).toHaveBeenCalledWith("studio.list", expect.anything());
       });
     });
+
+    it("does not call commission.list during initWorkspace (fetched by CommissionPanel)", async () => {
+      mockCall.mockImplementation((method: string) => {
+        switch (method) {
+          case "workspace.info": return Promise.resolve({ name: "test", rootPath: "/test" });
+          case "fs.readTree": return Promise.resolve([]);
+          case "git.status": return Promise.resolve([]);
+          case "git.branches": return Promise.resolve([]);
+          case "studio.list": return Promise.resolve([]);
+          default: return Promise.resolve({});
+        }
+      });
+
+      renderHook(() => useConnection());
+      statusChangeCallback("connected");
+
+      await vi.waitFor(() => {
+        expect(mockCall).toHaveBeenCalledWith("workspace.info", expect.anything());
+      });
+
+      expect(mockCall).not.toHaveBeenCalledWith("commission.list", expect.anything());
+    });
   });
 
   // ── fs.watch notification ──

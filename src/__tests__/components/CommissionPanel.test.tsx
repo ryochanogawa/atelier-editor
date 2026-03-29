@@ -242,4 +242,57 @@ describe("CommissionPanel", () => {
     expect(screen.getByText("Result")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
   });
+
+  it("does not fetch commission.list when connectionStatus is not connected", () => {
+    useWorkspaceStore.setState({ status: "disconnected" });
+
+    render(<CommissionPanel />);
+    expect(mockCall).not.toHaveBeenCalledWith("commission.list", {});
+  });
+
+  it("shows generic toast when commission.run rejects with non-Error", async () => {
+    const user = userEvent.setup();
+    mockCall
+      .mockResolvedValueOnce([{ name: "build", description: "Build" }])
+      .mockRejectedValueOnce("string rejection");
+
+    render(<CommissionPanel />);
+
+    await vi.waitFor(() => {
+      expect(screen.getByRole("option", { name: "build" })).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByRole("combobox"), "build");
+    await user.click(screen.getByRole("button", { name: "Run Commission" }));
+
+    await vi.waitFor(() => {
+      expect(useWorkspaceStore.getState().toasts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ message: "Failed to start commission", type: "error" }),
+        ])
+      );
+    });
+  });
+
+  it("shows generic toast when commission.abort rejects with non-Error", async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({
+      commissionStatus: "running",
+      activeCommissionId: "c-1",
+    });
+    mockCall
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce("string rejection");
+
+    render(<CommissionPanel />);
+    await user.click(screen.getByRole("button", { name: "Abort" }));
+
+    await vi.waitFor(() => {
+      expect(useWorkspaceStore.getState().toasts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ message: "Failed to abort commission", type: "error" }),
+        ])
+      );
+    });
+  });
 });
