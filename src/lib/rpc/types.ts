@@ -158,6 +158,29 @@ export interface RpcMethodMap {
     params: { sessionId: string };
     result: { success: boolean };
   };
+
+  // Commission methods
+  "commission.list": {
+    params: { worktreeId?: string };
+    result: CommissionDefinition[];
+  };
+  "commission.run": {
+    params: { commissionName: string; worktreeId?: string; params?: Record<string, unknown> };
+    result: { commissionId: string };
+  };
+  "commission.abort": {
+    params: { commissionId: string };
+    result: { success: boolean };
+  };
+  "commission.status": {
+    params: { commissionId: string };
+    result: {
+      commissionId: string;
+      status: CommissionStatus;
+      phase?: string;
+      progress?: number | null;
+    };
+  };
 }
 
 // === 通知型マップ ===
@@ -195,6 +218,9 @@ export interface NotificationMap {
   "studio.changed": StudioChangeParams;
   "terminal.output": TerminalOutputParams;
   "terminal.exit": TerminalExitParams;
+  "commission.progress": CommissionProgressParams;
+  "commission.stroke": CommissionStrokeParams;
+  "commission.completed": CommissionCompletedParams;
 }
 
 // === Git ドメイン型 ===
@@ -226,6 +252,41 @@ export interface GitLogEntry {
   message: string;
   author: string;
   date: string;
+}
+
+// === Commission ドメイン型 ===
+
+export interface CommissionDefinition {
+  name: string;
+  description: string;
+  params?: Record<string, unknown>;
+}
+
+export type CommissionStatus = "running" | "completed" | "failed" | "aborted";
+
+export interface CommissionProgressParams {
+  commissionId: string;
+  phase: string;
+  message: string;
+  progress: number | null;
+  timestamp: string;
+}
+
+export interface CommissionStrokeParams {
+  commissionId: string;
+  strokeId: string;
+  strokeName: string;
+  status: "running" | "completed" | "failed";
+}
+
+export interface CommissionCompletedParams {
+  commissionId: string;
+  status: "success" | "failure" | "aborted";
+  result?: {
+    changedFiles: string[];
+    summary: string;
+  };
+  error?: string;
 }
 
 // === Worktree ドメイン型 ===

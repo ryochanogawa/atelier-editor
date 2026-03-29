@@ -9,6 +9,8 @@ import type {
   GitLogEntry,
   GitDiffFile,
   WorktreeInfo,
+  CommissionDefinition,
+  CommissionStatus,
 } from "@/lib/rpc/types";
 
 // === Connection Slice ===
@@ -262,7 +264,7 @@ const createStudioSlice: StateCreator<WorkspaceStore, [], [], StudioSlice> = (
 
 // === Sidebar Slice ===
 
-export type SidebarView = "files" | "git";
+export type SidebarView = "files" | "git" | "commission";
 
 interface SidebarSlice {
   sidebarView: SidebarView;
@@ -373,6 +375,97 @@ const createTerminalSlice: StateCreator<WorkspaceStore, [], [], TerminalSlice> =
   setTerminalHeight: (height) => set({ terminalHeight: height }),
 });
 
+// === Commission Slice ===
+
+export interface CommissionLogEntry {
+  phase: string;
+  message: string;
+  progress: number | null;
+  timestamp: string;
+}
+
+export interface CommissionStroke {
+  strokeId: string;
+  strokeName: string;
+  status: "running" | "completed" | "failed";
+}
+
+interface CommissionSlice {
+  commissionDefinitions: CommissionDefinition[];
+  activeCommissionId: string | null;
+  commissionStatus: CommissionStatus | null;
+  commissionLogs: CommissionLogEntry[];
+  commissionStrokes: CommissionStroke[];
+  commissionProgress: number | null;
+  commissionResult: {
+    status: "success" | "failure" | "aborted";
+    changedFiles?: string[];
+    summary?: string;
+    error?: string;
+  } | null;
+
+  setCommissionDefinitions: (defs: CommissionDefinition[]) => void;
+  startCommission: (commissionId: string) => void;
+  addCommissionLog: (entry: CommissionLogEntry) => void;
+  updateCommissionStroke: (stroke: CommissionStroke) => void;
+  completeCommission: (result: CommissionSlice["commissionResult"]) => void;
+  clearCommission: () => void;
+}
+
+const createCommissionSlice: StateCreator<WorkspaceStore, [], [], CommissionSlice> = (
+  set
+) => ({
+  commissionDefinitions: [],
+  activeCommissionId: null,
+  commissionStatus: null,
+  commissionLogs: [],
+  commissionStrokes: [],
+  commissionProgress: null,
+  commissionResult: null,
+
+  setCommissionDefinitions: (commissionDefinitions) => set({ commissionDefinitions }),
+  startCommission: (commissionId) =>
+    set({
+      activeCommissionId: commissionId,
+      commissionStatus: "running",
+      commissionLogs: [],
+      commissionStrokes: [],
+      commissionProgress: null,
+      commissionResult: null,
+    }),
+  addCommissionLog: (entry) =>
+    set((state) => ({
+      commissionLogs: [...state.commissionLogs, entry],
+      commissionProgress: entry.progress ?? state.commissionProgress,
+    })),
+  updateCommissionStroke: (stroke) =>
+    set((state) => {
+      const existing = state.commissionStrokes.findIndex(
+        (s) => s.strokeId === stroke.strokeId
+      );
+      if (existing >= 0) {
+        const next = [...state.commissionStrokes];
+        next[existing] = stroke;
+        return { commissionStrokes: next };
+      }
+      return { commissionStrokes: [...state.commissionStrokes, stroke] };
+    }),
+  completeCommission: (result) =>
+    set({
+      commissionStatus: result?.status === "success" ? "completed" : result?.status === "aborted" ? "aborted" : "failed",
+      commissionResult: result,
+    }),
+  clearCommission: () =>
+    set({
+      activeCommissionId: null,
+      commissionStatus: null,
+      commissionLogs: [],
+      commissionStrokes: [],
+      commissionProgress: null,
+      commissionResult: null,
+    }),
+});
+
 // === 統合 Store ===
 
 export type WorkspaceStore = ConnectionSlice &
@@ -384,7 +477,8 @@ export type WorkspaceStore = ConnectionSlice &
   StudioSlice &
   SidebarSlice &
   ToastSlice &
-  TerminalSlice;
+  TerminalSlice &
+  CommissionSlice;
 
 export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createConnectionSlice(...a),
@@ -397,4 +491,5 @@ export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createSidebarSlice(...a),
   ...createToastSlice(...a),
   ...createTerminalSlice(...a),
+  ...createCommissionSlice(...a),
 }));

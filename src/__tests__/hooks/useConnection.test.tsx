@@ -27,6 +27,9 @@ describe("useConnection", () => {
   let unsubWatch: ReturnType<typeof vi.fn>;
   let unsubGitChanged: ReturnType<typeof vi.fn>;
   let unsubStudioChanged: ReturnType<typeof vi.fn>;
+  let unsubCommissionProgress: ReturnType<typeof vi.fn>;
+  let unsubCommissionStroke: ReturnType<typeof vi.fn>;
+  let unsubCommissionCompleted: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     notificationCallbacks = {};
@@ -34,6 +37,9 @@ describe("useConnection", () => {
     unsubWatch = vi.fn();
     unsubGitChanged = vi.fn();
     unsubStudioChanged = vi.fn();
+    unsubCommissionProgress = vi.fn();
+    unsubCommissionStroke = vi.fn();
+    unsubCommissionCompleted = vi.fn();
 
     mockOnStatusChange.mockImplementation((cb: (status: string) => void) => {
       statusChangeCallback = cb;
@@ -46,6 +52,9 @@ describe("useConnection", () => {
         "fs.watch": unsubWatch,
         "git.changed": unsubGitChanged,
         "studio.changed": unsubStudioChanged,
+        "commission.progress": unsubCommissionProgress,
+        "commission.stroke": unsubCommissionStroke,
+        "commission.completed": unsubCommissionCompleted,
       };
       return unsubs[method] ?? vi.fn();
     });
@@ -70,12 +79,15 @@ describe("useConnection", () => {
       expect(mockOnStatusChange).toHaveBeenCalledOnce();
     });
 
-    it("subscribes to fs.watch, git.changed, studio.changed notifications", () => {
+    it("subscribes to all notification channels", () => {
       renderHook(() => useConnection());
       const methods = mockOnNotification.mock.calls.map((c: unknown[]) => c[0]);
       expect(methods).toContain("fs.watch");
       expect(methods).toContain("git.changed");
       expect(methods).toContain("studio.changed");
+      expect(methods).toContain("commission.progress");
+      expect(methods).toContain("commission.stroke");
+      expect(methods).toContain("commission.completed");
     });
   });
 
@@ -379,6 +391,209 @@ describe("useConnection", () => {
     });
   });
 
+  // ── commission.progress notification ──
+
+  describe("commission.progress notification", () => {
+    it("adds log entry when commissionId matches activeCommissionId", () => {
+      useWorkspaceStore.setState({ activeCommissionId: "c-1" });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["commission.progress"]({
+        commissionId: "c-1",
+        phase: "build",
+        message: "Building...",
+        progress: 50,
+        timestamp: "2026-01-01T00:00:00Z",
+      });
+
+      const logs = useWorkspaceStore.getState().commissionLogs;
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toEqual({
+        phase: "build",
+        message: "Building...",
+        progress: 50,
+        timestamp: "2026-01-01T00:00:00Z",
+      });
+    });
+
+    it("ignores notification when commissionId does not match", () => {
+      useWorkspaceStore.setState({ activeCommissionId: "c-1" });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["commission.progress"]({
+        commissionId: "c-other",
+        phase: "build",
+        message: "Building...",
+        progress: 50,
+        timestamp: "2026-01-01T00:00:00Z",
+      });
+
+      expect(useWorkspaceStore.getState().commissionLogs).toEqual([]);
+    });
+
+    it("ignores notification when no activeCommissionId", () => {
+      renderHook(() => useConnection());
+      notificationCallbacks["commission.progress"]({
+        commissionId: "c-1",
+        phase: "build",
+        message: "Building...",
+        progress: 50,
+        timestamp: "2026-01-01T00:00:00Z",
+      });
+
+      expect(useWorkspaceStore.getState().commissionLogs).toEqual([]);
+    });
+
+    it("updates commissionProgress from progress notification", () => {
+      useWorkspaceStore.setState({ activeCommissionId: "c-1" });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["commission.progress"]({
+        commissionId: "c-1",
+        phase: "build",
+        message: "Building...",
+        progress: 75,
+        timestamp: "2026-01-01T00:00:00Z",
+      });
+
+      expect(useWorkspaceStore.getState().commissionProgress).toBe(75);
+    });
+  });
+
+  // ── commission.stroke notification ──
+
+  describe("commission.stroke notification", () => {
+    it("updates stroke when commissionId matches", () => {
+      useWorkspaceStore.setState({ activeCommissionId: "c-1" });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["commission.stroke"]({
+        commissionId: "c-1",
+        strokeId: "s-1",
+        strokeName: "TypeCheck",
+        status: "running",
+      });
+
+      const strokes = useWorkspaceStore.getState().commissionStrokes;
+      expect(strokes).toHaveLength(1);
+      expect(strokes[0]).toEqual({
+        strokeId: "s-1",
+        strokeName: "TypeCheck",
+        status: "running",
+      });
+    });
+
+    it("ignores stroke when commissionId does not match", () => {
+      useWorkspaceStore.setState({ activeCommissionId: "c-1" });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["commission.stroke"]({
+        commissionId: "c-other",
+        strokeId: "s-1",
+        strokeName: "TypeCheck",
+        status: "running",
+      });
+
+      expect(useWorkspaceStore.getState().commissionStrokes).toEqual([]);
+    });
+
+    it("ignores stroke when no activeCommissionId", () => {
+      renderHook(() => useConnection());
+      notificationCallbacks["commission.stroke"]({
+        commissionId: "c-1",
+        strokeId: "s-1",
+        strokeName: "TypeCheck",
+        status: "running",
+      });
+
+      expect(useWorkspaceStore.getState().commissionStrokes).toEqual([]);
+    });
+  });
+
+  // ── commission.completed notification ──
+
+  describe("commission.completed notification", () => {
+    it("completes commission on success when commissionId matches", () => {
+      useWorkspaceStore.setState({
+        activeCommissionId: "c-1",
+        commissionStatus: "running",
+      });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["commission.completed"]({
+        commissionId: "c-1",
+        status: "success",
+        result: { changedFiles: ["a.ts"], summary: "Done" },
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.commissionStatus).toBe("completed");
+      expect(state.commissionResult?.status).toBe("success");
+      expect(state.commissionResult?.changedFiles).toEqual(["a.ts"]);
+      expect(state.commissionResult?.summary).toBe("Done");
+    });
+
+    it("completes commission on failure", () => {
+      useWorkspaceStore.setState({
+        activeCommissionId: "c-1",
+        commissionStatus: "running",
+      });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["commission.completed"]({
+        commissionId: "c-1",
+        status: "failure",
+        error: "Build failed",
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.commissionStatus).toBe("failed");
+      expect(state.commissionResult?.error).toBe("Build failed");
+    });
+
+    it("ignores completed when commissionId does not match", () => {
+      useWorkspaceStore.setState({
+        activeCommissionId: "c-1",
+        commissionStatus: "running",
+      });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["commission.completed"]({
+        commissionId: "c-other",
+        status: "success",
+        result: { changedFiles: [], summary: "Done" },
+      });
+
+      expect(useWorkspaceStore.getState().commissionStatus).toBe("running");
+    });
+
+    it("ignores completed when no activeCommissionId", () => {
+      renderHook(() => useConnection());
+      notificationCallbacks["commission.completed"]({
+        commissionId: "c-1",
+        status: "success",
+        result: { changedFiles: [], summary: "Done" },
+      });
+
+      expect(useWorkspaceStore.getState().commissionStatus).toBeNull();
+    });
+
+    it("handles aborted status", () => {
+      useWorkspaceStore.setState({
+        activeCommissionId: "c-1",
+        commissionStatus: "running",
+      });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["commission.completed"]({
+        commissionId: "c-1",
+        status: "aborted",
+      });
+
+      expect(useWorkspaceStore.getState().commissionStatus).toBe("aborted");
+    });
+  });
+
   // ── Cleanup ──
 
   describe("cleanup", () => {
@@ -390,6 +605,9 @@ describe("useConnection", () => {
       expect(unsubWatch).toHaveBeenCalledOnce();
       expect(unsubGitChanged).toHaveBeenCalledOnce();
       expect(unsubStudioChanged).toHaveBeenCalledOnce();
+      expect(unsubCommissionProgress).toHaveBeenCalledOnce();
+      expect(unsubCommissionStroke).toHaveBeenCalledOnce();
+      expect(unsubCommissionCompleted).toHaveBeenCalledOnce();
       expect(mockDisconnect).toHaveBeenCalledOnce();
     });
   });

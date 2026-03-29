@@ -3,7 +3,14 @@
 import { useEffect } from "react";
 import { getRpcClient } from "@/lib/rpc/client";
 import { useWorkspaceStore } from "@/stores/workspace";
-import type { FsWatchParams, GitChangeParams, StudioChangeParams } from "@/lib/rpc/types";
+import type {
+  FsWatchParams,
+  GitChangeParams,
+  StudioChangeParams,
+  CommissionProgressParams,
+  CommissionStrokeParams,
+  CommissionCompletedParams,
+} from "@/lib/rpc/types";
 
 export function useConnection(): void {
   useEffect(() => {
@@ -40,6 +47,41 @@ export function useConnection(): void {
       }).catch(() => {
         // サイレントに失敗
       });
+    });
+
+    const unsubCommissionProgress = client.onNotification("commission.progress", (params: CommissionProgressParams) => {
+      const { activeCommissionId } = store();
+      if (activeCommissionId && params.commissionId === activeCommissionId) {
+        store().addCommissionLog({
+          phase: params.phase,
+          message: params.message,
+          progress: params.progress,
+          timestamp: params.timestamp,
+        });
+      }
+    });
+
+    const unsubCommissionStroke = client.onNotification("commission.stroke", (params: CommissionStrokeParams) => {
+      const { activeCommissionId } = store();
+      if (activeCommissionId && params.commissionId === activeCommissionId) {
+        store().updateCommissionStroke({
+          strokeId: params.strokeId,
+          strokeName: params.strokeName,
+          status: params.status,
+        });
+      }
+    });
+
+    const unsubCommissionCompleted = client.onNotification("commission.completed", (params: CommissionCompletedParams) => {
+      const { activeCommissionId } = store();
+      if (activeCommissionId && params.commissionId === activeCommissionId) {
+        store().completeCommission({
+          status: params.status,
+          changedFiles: params.result?.changedFiles,
+          summary: params.result?.summary,
+          error: params.error,
+        });
+      }
     });
 
     async function initWorkspace(): Promise<void> {
@@ -105,6 +147,9 @@ export function useConnection(): void {
       unsubWatch();
       unsubGitChanged();
       unsubStudioChanged();
+      unsubCommissionProgress();
+      unsubCommissionStroke();
+      unsubCommissionCompleted();
       client.disconnect();
     };
   }, []);

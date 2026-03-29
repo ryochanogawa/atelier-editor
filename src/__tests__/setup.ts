@@ -34,6 +34,14 @@ afterEach(() => {
     activeTerminalId: null,
     terminalVisible: false,
     terminalHeight: 256,
+    // Phase 4: Commission slice
+    commissionDefinitions: [],
+    activeCommissionId: null,
+    commissionStatus: null,
+    commissionLogs: [],
+    commissionStrokes: [],
+    commissionProgress: null,
+    commissionResult: null,
   });
 });
 
@@ -94,6 +102,9 @@ class MockWebSocket {
   send = vi.fn();
   close = vi.fn();
 }
+
+// Mock scrollIntoView (not available in jsdom)
+Element.prototype.scrollIntoView = vi.fn();
 
 Object.assign(globalThis, { WebSocket: MockWebSocket });
 export { MockWebSocket };
