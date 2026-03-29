@@ -42,6 +42,11 @@ afterEach(() => {
     commissionStrokes: [],
     commissionProgress: null,
     commissionResult: null,
+    // Phase 6: Chat slice
+    chatMessages: [],
+    chatStatus: "idle",
+    streamingMessageId: null,
+    pendingChanges: [],
   });
 });
 

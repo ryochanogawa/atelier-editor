@@ -15,6 +15,8 @@ describe("CommissionPanel", () => {
     mockCall.mockReset();
     // Default: commission.list returns empty
     mockCall.mockResolvedValue([]);
+    // CommissionPanel now guards fetch behind connectionStatus === "connected"
+    useWorkspaceStore.setState({ status: "connected" });
   });
 
   it("renders Commission heading", () => {

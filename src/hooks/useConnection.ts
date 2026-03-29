@@ -10,6 +10,7 @@ import type {
   CommissionProgressParams,
   CommissionStrokeParams,
   CommissionCompletedParams,
+  ChatStreamParams,
 } from "@/lib/rpc/types";
 
 export function useConnection(): void {
@@ -84,6 +85,16 @@ export function useConnection(): void {
       }
     });
 
+    const unsubChatStream = client.onNotification("chat.stream", (params: ChatStreamParams) => {
+      const { messageId, delta, done, codeChanges } = params;
+      if (delta) {
+        store().appendStreamDelta(messageId, delta);
+      }
+      if (done) {
+        store().finalizeStream(messageId, codeChanges);
+      }
+    });
+
     async function initWorkspace(): Promise<void> {
       try {
         const [info, tree, gitStatus, branches, worktrees] = await Promise.all([
@@ -150,6 +161,7 @@ export function useConnection(): void {
       unsubCommissionProgress();
       unsubCommissionStroke();
       unsubCommissionCompleted();
+      unsubChatStream();
       client.disconnect();
     };
   }, []);

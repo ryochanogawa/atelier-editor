@@ -6,6 +6,7 @@ import type { OnMount, OnChange } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { atelierDarkTheme, ATELIER_THEME_NAME } from "@/lib/editor/theme";
+import { useInlineDiff } from "@/hooks/useInlineDiff";
 import { DiffEditor } from "./DiffEditor";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react").then((m) => m.Editor), {
@@ -41,6 +42,8 @@ export function CodeEditor() {
   const setDiffFile = useWorkspaceStore((s) => s.setDiffFile);
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+
+  useInlineDiff(editorRef.current, activeTab);
 
   const file = activeTab ? openFiles.get(activeTab) : undefined;
 

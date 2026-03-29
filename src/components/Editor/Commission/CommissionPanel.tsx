@@ -17,13 +17,16 @@ export function CommissionPanel() {
   const startCommission = useWorkspaceStore((s) => s.startCommission);
   const clearCommission = useWorkspaceStore((s) => s.clearCommission);
 
+  const connectionStatus = useWorkspaceStore((s) => s.status);
+
   useEffect(() => {
+    if (connectionStatus !== "connected") return;
     const client = getRpcClient();
     client
       .call("commission.list", {})
       .then(setCommissionDefinitions)
       .catch(() => {});
-  }, [setCommissionDefinitions]);
+  }, [connectionStatus, setCommissionDefinitions]);
 
   const isRunning = commissionStatus === "running";
 

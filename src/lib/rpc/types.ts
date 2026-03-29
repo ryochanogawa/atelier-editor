@@ -181,6 +181,20 @@ export interface RpcMethodMap {
       progress?: number | null;
     };
   };
+
+  // Chat methods
+  "chat.send": {
+    params: {
+      chatId: string;
+      message: string;
+      context: ChatContext;
+    };
+    result: { messageId: string };
+  };
+  "chat.abort": {
+    params: { chatId: string };
+    result: { success: boolean };
+  };
 }
 
 // === 通知型マップ ===
@@ -221,6 +235,7 @@ export interface NotificationMap {
   "commission.progress": CommissionProgressParams;
   "commission.stroke": CommissionStrokeParams;
   "commission.completed": CommissionCompletedParams;
+  "chat.stream": ChatStreamParams;
 }
 
 // === Git ドメイン型 ===
@@ -296,6 +311,57 @@ export interface WorktreeInfo {
   path: string;
   branch: string;
   isMain: boolean;
+}
+
+// === Chat ドメイン型 ===
+
+export type ChatRole = "user" | "assistant";
+
+export type ChatStatus = "idle" | "sending" | "streaming" | "error";
+
+export interface ChatMessage {
+  id: string;
+  role: ChatRole;
+  content: string;
+  timestamp: string;
+  codeChanges?: CodeChange[];
+}
+
+export interface CodeChange {
+  changeId: string;
+  filePath: string;
+  original: string;
+  modified: string;
+  status: "pending" | "accepted" | "rejected";
+}
+
+export interface ChatContext {
+  activeFile?: {
+    path: string;
+    content: string;
+    language: string;
+  };
+  cursorPosition?: {
+    line: number;
+    column: number;
+  };
+  selection?: {
+    startLine: number;
+    startColumn: number;
+    endLine: number;
+    endColumn: number;
+    text: string;
+  };
+  openFiles?: string[];
+  gitChangedFiles?: string[];
+}
+
+export interface ChatStreamParams {
+  chatId: string;
+  messageId: string;
+  delta: string;
+  done: boolean;
+  codeChanges?: CodeChange[];
 }
 
 // === 接続状態 ===

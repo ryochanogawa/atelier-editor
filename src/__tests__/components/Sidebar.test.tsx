@@ -17,13 +17,18 @@ vi.mock("@/components/Editor/Commission/CommissionPanel", () => ({
   CommissionPanel: () => <div data-testid="commission-panel">CommissionPanel</div>,
 }));
 
+vi.mock("@/components/Editor/Chat/ChatPanel", () => ({
+  ChatPanel: () => <div data-testid="chat-panel">ChatPanel</div>,
+}));
+
 describe("Sidebar", () => {
-  it("renders activity bar with Explorer, Source Control, and Commission buttons", () => {
+  it("renders activity bar with Explorer, Source Control, Commission, and AI Chat buttons", () => {
     render(<Sidebar />);
 
     expect(screen.getByTitle("Explorer")).toBeInTheDocument();
     expect(screen.getByTitle("Source Control")).toBeInTheDocument();
     expect(screen.getByTitle("Commission")).toBeInTheDocument();
+    expect(screen.getByTitle("AI Chat")).toBeInTheDocument();
   });
 
   it("shows FileExplorer by default (files view)", () => {
@@ -98,5 +103,39 @@ describe("Sidebar", () => {
 
     await user.click(screen.getByTitle("Commission"));
     expect(useWorkspaceStore.getState().sidebarView).toBe("commission");
+  });
+
+  // Phase 6: AI Chat view
+  it("switches to ChatPanel when AI Chat clicked", async () => {
+    const user = userEvent.setup();
+    render(<Sidebar />);
+
+    await user.click(screen.getByTitle("AI Chat"));
+
+    expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("file-explorer")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("git-panel")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("commission-panel")).not.toBeInTheDocument();
+  });
+
+  it("sets sidebarView to chat on AI Chat click", async () => {
+    const user = userEvent.setup();
+    render(<Sidebar />);
+
+    await user.click(screen.getByTitle("AI Chat"));
+    expect(useWorkspaceStore.getState().sidebarView).toBe("chat");
+  });
+
+  it("switches from Chat back to Explorer", async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({ sidebarView: "chat" });
+    render(<Sidebar />);
+
+    expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+
+    await user.click(screen.getByTitle("Explorer"));
+
+    expect(screen.getByTestId("file-explorer")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-panel")).not.toBeInTheDocument();
   });
 });
