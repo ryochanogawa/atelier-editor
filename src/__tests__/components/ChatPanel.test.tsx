@@ -155,7 +155,7 @@ describe("ChatPanel", () => {
     useWorkspaceStore.setState({
       activeTab: "/src/app.ts",
       openFiles: new Map([
-        ["/src/app.ts", { path: "/src/app.ts", content: "code", language: "typescript" }],
+        ["/src/app.ts", { path: "/src/app.ts", content: "code", originalContent: "code", language: "typescript" }],
       ]),
     });
 
@@ -169,7 +169,7 @@ describe("ChatPanel", () => {
     useWorkspaceStore.setState({
       activeTab: "/src/app.ts",
       openFiles: new Map([
-        ["/src/app.ts", { path: "/src/app.ts", content: "const x = 1;", language: "typescript" }],
+        ["/src/app.ts", { path: "/src/app.ts", content: "const x = 1;", originalContent: "const x = 1;", language: "typescript" }],
       ]),
       tabOrder: ["/src/app.ts"],
       cursorPosition: { line: 1, column: 5 },
@@ -207,7 +207,7 @@ describe("ChatPanel", () => {
     useWorkspaceStore.setState({
       pendingChanges: [change],
       openFiles: new Map([
-        ["/src/app.ts", { path: "/src/app.ts", content: "old", language: "typescript" }],
+        ["/src/app.ts", { path: "/src/app.ts", content: "old", originalContent: "old", language: "typescript" }],
       ]),
     });
 
