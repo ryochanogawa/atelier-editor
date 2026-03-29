@@ -1,10 +1,11 @@
 import { WebSocketServer } from "ws";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import crypto from "node:crypto";
+import net from "node:net";
 
 const require = createRequire(import.meta.url);
 const pty = require("node-pty");
@@ -477,6 +478,204 @@ const terminalHandlers = {
   },
 };
 
+// === Preview (Dev Server) ハンドラ ===
+
+// dev server 状態管理
+let devServerProcess = null;
+let devServerStatus = "stopped"; // stopped | starting | running | error
+let devServerPort = null;
+let devServerUrl = null;
+let devServerIdleTimer = null;
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+function resetIdleTimer(wss) {
+  if (devServerIdleTimer) clearTimeout(devServerIdleTimer);
+  if (devServerStatus === "running") {
+    devServerIdleTimer = setTimeout(() => {
+      console.log("[dev-server] Idle timeout — stopping preview dev server");
+      stopDevServer(wss);
+    }, IDLE_TIMEOUT_MS);
+  }
+}
+
+async function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(0, () => {
+      const port = server.address().port;
+      server.close(() => resolve(port));
+    });
+    server.on("error", reject);
+  });
+}
+
+async function startDevServer(wss) {
+  if (devServerProcess) {
+    return { url: devServerUrl, port: devServerPort };
+  }
+
+  devServerStatus = "starting";
+  broadcastNotification(wss, "preview.statusChange", {
+    status: "starting",
+    url: null,
+    port: null,
+  });
+
+  try {
+    const port = await findFreePort();
+    devServerPort = port;
+
+    const viteProcess = spawn("npx", ["vite", "--port", String(port), "--host", "localhost"], {
+      cwd: WORKSPACE_ROOT,
+      env: { ...process.env },
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: true,
+    });
+
+    devServerProcess = viteProcess;
+
+    let resolved = false;
+
+    const readyPromise = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          reject(new Error("Dev server startup timed out (5s)"));
+        }
+      }, 5000);
+
+      function onData(data) {
+        const line = data.toString();
+        broadcastNotification(wss, "preview.log", {
+          line: line.trim(),
+          timestamp: new Date().toISOString(),
+        });
+
+        // Vite outputs "Local: http://localhost:PORT/" when ready
+        const urlMatch = line.match(/Local:\s+(https?:\/\/[^\s]+)/);
+        if (urlMatch && !resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          resolve(urlMatch[1]);
+        }
+      }
+
+      viteProcess.stdout.on("data", onData);
+      viteProcess.stderr.on("data", (data) => {
+        const line = data.toString();
+        broadcastNotification(wss, "preview.log", {
+          line: line.trim(),
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      viteProcess.on("error", (err) => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          reject(err);
+        }
+      });
+
+      viteProcess.on("exit", (code) => {
+        devServerProcess = null;
+        devServerStatus = "stopped";
+        devServerPort = null;
+        devServerUrl = null;
+        if (devServerIdleTimer) clearTimeout(devServerIdleTimer);
+
+        broadcastNotification(wss, "preview.statusChange", {
+          status: code === 0 || code === null ? "stopped" : "error",
+          url: null,
+          port: null,
+          ...(code !== 0 && code !== null ? { error: `Process exited with code ${code}` } : {}),
+        });
+
+        if (!resolved) {
+          resolved = true;
+          reject(new Error(`Dev server exited with code ${code}`));
+        }
+      });
+    });
+
+    const url = await readyPromise;
+    devServerUrl = url;
+    devServerStatus = "running";
+
+    broadcastNotification(wss, "preview.statusChange", {
+      status: "running",
+      url,
+      port,
+    });
+
+    resetIdleTimer(wss);
+    console.log(`[dev-server] Preview dev server running at ${url}`);
+
+    return { url, port };
+  } catch (err) {
+    devServerStatus = "error";
+    if (devServerProcess) {
+      devServerProcess.kill();
+      devServerProcess = null;
+    }
+    devServerPort = null;
+    devServerUrl = null;
+
+    broadcastNotification(wss, "preview.statusChange", {
+      status: "error",
+      url: null,
+      port: null,
+      error: err.message,
+    });
+
+    throw { code: -32603, message: `Failed to start dev server: ${err.message}` };
+  }
+}
+
+function stopDevServer(wss) {
+  if (devServerIdleTimer) {
+    clearTimeout(devServerIdleTimer);
+    devServerIdleTimer = null;
+  }
+
+  if (devServerProcess) {
+    devServerProcess.kill();
+    devServerProcess = null;
+  }
+
+  devServerStatus = "stopped";
+  devServerPort = null;
+  devServerUrl = null;
+
+  broadcastNotification(wss, "preview.statusChange", {
+    status: "stopped",
+    url: null,
+    port: null,
+  });
+
+  console.log("[dev-server] Preview dev server stopped");
+  return { success: true };
+}
+
+const previewHandlers = {
+  "preview.start": async (_params, _ws, wss) => {
+    resetIdleTimer(wss);
+    return await startDevServer(wss);
+  },
+
+  "preview.stop": (_params, _ws, wss) => {
+    return stopDevServer(wss);
+  },
+
+  "preview.status": () => {
+    return {
+      status: devServerStatus,
+      url: devServerUrl,
+      port: devServerPort,
+    };
+  },
+};
+
 function broadcastNotification(wss, method, params) {
   const msg = JSON.stringify({ jsonrpc: "2.0", method, params });
   for (const client of wss.clients) {
@@ -510,7 +709,7 @@ wss.on("connection", (ws) => {
     const { id, method, params } = request;
     console.log(`[dev-server] → ${method}`, params);
 
-    const allHandlers = { ...handlers, ...gitHandlers, ...studioHandlers, ...terminalHandlers };
+    const allHandlers = { ...handlers, ...gitHandlers, ...studioHandlers, ...terminalHandlers, ...previewHandlers };
     const handler = allHandlers[method];
     if (!handler) {
       ws.send(
@@ -548,6 +747,21 @@ wss.on("connection", (ws) => {
     }
     console.log("[dev-server] Client disconnected");
   });
+});
+
+// クリーンアップ: プロセス終了時にdev serverを停止
+process.on("SIGINT", () => {
+  if (devServerProcess) {
+    devServerProcess.kill();
+  }
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  if (devServerProcess) {
+    devServerProcess.kill();
+  }
+  process.exit(0);
 });
 
 console.log(`[dev-server] WebSocket server running on ws://localhost:${PORT}`);

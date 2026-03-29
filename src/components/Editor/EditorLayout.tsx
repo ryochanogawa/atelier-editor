@@ -12,9 +12,13 @@ import { WorktreeSelector } from "./WorktreeSelector";
 import { ToastContainer } from "./ToastContainer";
 import { TerminalPanel } from "./Terminal/TerminalPanel";
 import { ResizeHandle } from "./Terminal/ResizeHandle";
+import { PreviewPanel } from "./Preview/PreviewPanel";
+import { PreviewResizeHandle } from "./Preview/PreviewResizeHandle";
 
 const MIN_TERMINAL_HEIGHT = 100;
 const MAX_TERMINAL_RATIO = 0.7;
+const MIN_PREVIEW_WIDTH = 200;
+const MAX_PREVIEW_RATIO = 0.7;
 
 export function EditorLayout() {
   useConnection();
@@ -23,8 +27,11 @@ export function EditorLayout() {
   const terminalVisible = useWorkspaceStore((s) => s.terminalVisible);
   const terminalHeight = useWorkspaceStore((s) => s.terminalHeight);
   const setTerminalHeight = useWorkspaceStore((s) => s.setTerminalHeight);
+  const previewVisible = useWorkspaceStore((s) => s.previewVisible);
+  const previewWidth = useWorkspaceStore((s) => s.previewWidth);
+  const setPreviewWidth = useWorkspaceStore((s) => s.setPreviewWidth);
 
-  const handleResize = useCallback(
+  const handleTerminalResize = useCallback(
     (deltaY: number) => {
       setTerminalHeight(
         Math.max(
@@ -36,7 +43,23 @@ export function EditorLayout() {
     [terminalHeight, setTerminalHeight]
   );
 
-  const handleResizeEnd = useCallback(() => {
+  const handleTerminalResizeEnd = useCallback(() => {
+    // future: persist to localStorage
+  }, []);
+
+  const handlePreviewResize = useCallback(
+    (deltaX: number) => {
+      setPreviewWidth(
+        Math.max(
+          MIN_PREVIEW_WIDTH,
+          Math.min(window.innerWidth * MAX_PREVIEW_RATIO, previewWidth + deltaX)
+        )
+      );
+    },
+    [previewWidth, setPreviewWidth]
+  );
+
+  const handlePreviewResizeEnd = useCallback(() => {
     // future: persist to localStorage
   }, []);
 
@@ -47,7 +70,7 @@ export function EditorLayout() {
         <WorktreeSelector />
       </header>
 
-      {/* Main area: sidebar + editor */}
+      {/* Main area: sidebar + editor + preview */}
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar (Activity Bar + Panel) */}
         <aside
@@ -70,13 +93,23 @@ export function EditorLayout() {
           {/* Terminal section */}
           {terminalVisible && (
             <>
-              <ResizeHandle onResize={handleResize} onResizeEnd={handleResizeEnd} />
+              <ResizeHandle onResize={handleTerminalResize} onResizeEnd={handleTerminalResizeEnd} />
               <div className="shrink-0 overflow-hidden" style={{ height: terminalHeight }}>
                 <TerminalPanel />
               </div>
             </>
           )}
         </main>
+
+        {/* Preview panel */}
+        {previewVisible && (
+          <>
+            <PreviewResizeHandle onResize={handlePreviewResize} onResizeEnd={handlePreviewResizeEnd} />
+            <div className="shrink-0 overflow-hidden" style={{ width: previewWidth }}>
+              <PreviewPanel />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Status bar */}

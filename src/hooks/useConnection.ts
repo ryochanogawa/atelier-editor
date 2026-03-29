@@ -10,6 +10,8 @@ import type {
   CommissionProgressParams,
   CommissionStrokeParams,
   CommissionCompletedParams,
+  PreviewStatusChangeParams,
+  PreviewLogParams,
 } from "@/lib/rpc/types";
 
 export function useConnection(): void {
@@ -84,6 +86,18 @@ export function useConnection(): void {
       }
     });
 
+    const unsubPreviewStatus = client.onNotification("preview.statusChange", (params: PreviewStatusChangeParams) => {
+      store().setDevServerStatus(params.status);
+      store().setPreviewUrl(params.url, params.port);
+      if (params.error) {
+        store().setPreviewError(params.error);
+      }
+    });
+
+    const unsubPreviewLog = client.onNotification("preview.log", (params: PreviewLogParams) => {
+      store().addPreviewLog(params.line);
+    });
+
     async function initWorkspace(): Promise<void> {
       try {
         const [info, tree, gitStatus, branches, worktrees] = await Promise.all([
@@ -150,6 +164,8 @@ export function useConnection(): void {
       unsubCommissionProgress();
       unsubCommissionStroke();
       unsubCommissionCompleted();
+      unsubPreviewStatus();
+      unsubPreviewLog();
       client.disconnect();
     };
   }, []);

@@ -11,6 +11,8 @@ import type {
   WorktreeInfo,
   CommissionDefinition,
   CommissionStatus,
+  DevServerStatus,
+  ViewportPreset,
 } from "@/lib/rpc/types";
 
 // === Connection Slice ===
@@ -466,6 +468,73 @@ const createCommissionSlice: StateCreator<WorkspaceStore, [], [], CommissionSlic
     }),
 });
 
+// === Preview Slice ===
+
+export const VIEWPORT_PRESETS: ViewportPreset[] = [
+  { name: "Mobile", width: 375, height: 667 },
+  { name: "Tablet", width: 768, height: 1024 },
+  { name: "Desktop", width: 1440, height: 900 },
+];
+
+interface PreviewSlice {
+  previewVisible: boolean;
+  previewWidth: number;
+  devServerStatus: DevServerStatus;
+  previewUrl: string | null;
+  previewPort: number | null;
+  previewError: string | null;
+  previewLogs: string[];
+  activeViewport: ViewportPreset | null;
+
+  setPreviewVisible: (visible: boolean) => void;
+  togglePreview: () => void;
+  setPreviewWidth: (width: number) => void;
+  setDevServerStatus: (status: DevServerStatus) => void;
+  setPreviewUrl: (url: string | null, port: number | null) => void;
+  setPreviewError: (error: string | null) => void;
+  addPreviewLog: (line: string) => void;
+  clearPreviewLogs: () => void;
+  setActiveViewport: (preset: ViewportPreset | null) => void;
+  resetPreview: () => void;
+}
+
+const MAX_PREVIEW_LOGS = 500;
+
+const createPreviewSlice: StateCreator<WorkspaceStore, [], [], PreviewSlice> = (
+  set
+) => ({
+  previewVisible: false,
+  previewWidth: 480,
+  devServerStatus: "stopped",
+  previewUrl: null,
+  previewPort: null,
+  previewError: null,
+  previewLogs: [],
+  activeViewport: null,
+
+  setPreviewVisible: (previewVisible) => set({ previewVisible }),
+  togglePreview: () => set((state) => ({ previewVisible: !state.previewVisible })),
+  setPreviewWidth: (previewWidth) => set({ previewWidth }),
+  setDevServerStatus: (devServerStatus) => set({ devServerStatus }),
+  setPreviewUrl: (previewUrl, previewPort) => set({ previewUrl, previewPort }),
+  setPreviewError: (previewError) => set({ previewError }),
+  addPreviewLog: (line) =>
+    set((state) => {
+      const logs = [...state.previewLogs, line];
+      return { previewLogs: logs.length > MAX_PREVIEW_LOGS ? logs.slice(-MAX_PREVIEW_LOGS) : logs };
+    }),
+  clearPreviewLogs: () => set({ previewLogs: [] }),
+  setActiveViewport: (activeViewport) => set({ activeViewport }),
+  resetPreview: () =>
+    set({
+      devServerStatus: "stopped",
+      previewUrl: null,
+      previewPort: null,
+      previewError: null,
+      previewLogs: [],
+    }),
+});
+
 // === 統合 Store ===
 
 export type WorkspaceStore = ConnectionSlice &
@@ -478,7 +547,8 @@ export type WorkspaceStore = ConnectionSlice &
   SidebarSlice &
   ToastSlice &
   TerminalSlice &
-  CommissionSlice;
+  CommissionSlice &
+  PreviewSlice;
 
 export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createConnectionSlice(...a),
@@ -492,4 +562,5 @@ export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createToastSlice(...a),
   ...createTerminalSlice(...a),
   ...createCommissionSlice(...a),
+  ...createPreviewSlice(...a),
 }));

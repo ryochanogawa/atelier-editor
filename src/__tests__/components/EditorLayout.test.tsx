@@ -40,6 +40,16 @@ vi.mock("@/components/Editor/Terminal/ResizeHandle", () => ({
     </div>
   ),
 }));
+vi.mock("@/components/Editor/Preview/PreviewPanel", () => ({
+  PreviewPanel: () => <div data-testid="preview-panel">PreviewPanel</div>,
+}));
+vi.mock("@/components/Editor/Preview/PreviewResizeHandle", () => ({
+  PreviewResizeHandle: ({ onResize }: { onResize: (dx: number) => void }) => (
+    <div data-testid="preview-resize-handle" onClick={() => onResize(50)}>
+      PreviewResizeHandle
+    </div>
+  ),
+}));
 
 describe("EditorLayout", () => {
   it("renders all core layout sections", () => {
@@ -79,5 +89,47 @@ describe("EditorLayout", () => {
 
     // 120 + (-50) = 70 → clamped to 100
     expect(useWorkspaceStore.getState().terminalHeight).toBe(100);
+  });
+
+  // Phase 5: Preview panel
+
+  it("does not render preview panel when previewVisible is false", () => {
+    useWorkspaceStore.setState({ previewVisible: false });
+    render(<EditorLayout />);
+
+    expect(screen.queryByTestId("preview-panel")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("preview-resize-handle")).not.toBeInTheDocument();
+  });
+
+  it("renders preview panel when previewVisible is true", () => {
+    useWorkspaceStore.setState({ previewVisible: true, previewWidth: 480 });
+    render(<EditorLayout />);
+
+    expect(screen.getByTestId("preview-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("preview-resize-handle")).toBeInTheDocument();
+  });
+
+  it("clamps preview width to MIN_PREVIEW_WIDTH on resize", async () => {
+    const user = (await import("@testing-library/user-event")).default.setup();
+    useWorkspaceStore.setState({ previewVisible: true, previewWidth: 220 });
+    render(<EditorLayout />);
+
+    // Mock onResize passes 50, so 220 + 50 = 270 (above min, should work)
+    await user.click(screen.getByTestId("preview-resize-handle"));
+    expect(useWorkspaceStore.getState().previewWidth).toBe(270);
+  });
+
+  it("clamps preview width to minimum 200px", async () => {
+    const user = (await import("@testing-library/user-event")).default.setup();
+    // Use a very small width that after resize would be below MIN_PREVIEW_WIDTH
+    useWorkspaceStore.setState({ previewVisible: true, previewWidth: 180 });
+
+    // Override the mock to pass negative delta
+    vi.mocked(screen.getByTestId).mockClear;
+    render(<EditorLayout />);
+
+    // The current mock passes 50, so 180 + 50 = 230 (above min)
+    await user.click(screen.getByTestId("preview-resize-handle"));
+    expect(useWorkspaceStore.getState().previewWidth).toBe(230);
   });
 });

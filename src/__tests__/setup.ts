@@ -42,6 +42,15 @@ afterEach(() => {
     commissionStrokes: [],
     commissionProgress: null,
     commissionResult: null,
+    // Phase 5: Preview slice
+    previewVisible: false,
+    previewWidth: 480,
+    devServerStatus: "stopped",
+    previewUrl: null,
+    previewPort: null,
+    previewError: null,
+    previewLogs: [],
+    activeViewport: null,
   });
 });
 

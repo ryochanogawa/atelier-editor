@@ -159,6 +159,24 @@ export interface RpcMethodMap {
     result: { success: boolean };
   };
 
+  // Preview (dev server) methods
+  "preview.start": {
+    params: { commissionId?: string };
+    result: { url: string; port: number };
+  };
+  "preview.stop": {
+    params: { commissionId?: string };
+    result: { success: boolean };
+  };
+  "preview.status": {
+    params: { commissionId?: string };
+    result: {
+      status: DevServerStatus;
+      url: string | null;
+      port: number | null;
+    };
+  };
+
   // Commission methods
   "commission.list": {
     params: { worktreeId?: string };
@@ -212,6 +230,18 @@ export interface TerminalExitParams {
   exitCode: number;
 }
 
+export interface PreviewStatusChangeParams {
+  status: DevServerStatus;
+  url: string | null;
+  port: number | null;
+  error?: string;
+}
+
+export interface PreviewLogParams {
+  line: string;
+  timestamp: string;
+}
+
 export interface NotificationMap {
   "fs.watch": FsWatchParams;
   "git.changed": GitChangeParams;
@@ -221,6 +251,8 @@ export interface NotificationMap {
   "commission.progress": CommissionProgressParams;
   "commission.stroke": CommissionStrokeParams;
   "commission.completed": CommissionCompletedParams;
+  "preview.statusChange": PreviewStatusChangeParams;
+  "preview.log": PreviewLogParams;
 }
 
 // === Git ドメイン型 ===
@@ -296,6 +328,16 @@ export interface WorktreeInfo {
   path: string;
   branch: string;
   isMain: boolean;
+}
+
+// === Preview ドメイン型 ===
+
+export type DevServerStatus = "stopped" | "starting" | "running" | "error";
+
+export interface ViewportPreset {
+  name: string;
+  width: number;
+  height: number;
 }
 
 // === 接続状態 ===
