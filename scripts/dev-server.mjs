@@ -1,11 +1,13 @@
 import { WebSocketServer } from "ws";
 import { execFile, spawn } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, access } from "node:fs/promises";
+import { watch as fsWatch } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import crypto from "node:crypto";
 import net from "node:net";
+import YAML from "js-yaml";
 
 const require = createRequire(import.meta.url);
 const pty = require("node-pty");
@@ -950,6 +952,619 @@ function simulateChatResponse(ws, chatId, messageId, userMessage, context, state
   }, 30 + Math.random() * 50); // 30-80ms per chunk
 }
 
+// === Environment ハンドラ ===
+
+// 環境状態管理: worktreeId -> EnvironmentState
+const environmentStates = new Map();
+
+// environment.yml のパスを返す
+function envYmlPath(worktreeId) {
+  if (!worktreeId || worktreeId === "main") {
+    return path.join(WORKSPACE_ROOT, ".atelier", "environment.yml");
+  }
+  const wtPath = path.join(WORKSPACE_ROOT, ".worktrees", worktreeId);
+  return path.join(wtPath, ".atelier", "environment.yml");
+}
+
+// ワークツリーのルートパスを返す
+function worktreeRootPath(worktreeId) {
+  if (!worktreeId || worktreeId === "main") {
+    return WORKSPACE_ROOT;
+  }
+  return path.join(WORKSPACE_ROOT, ".worktrees", worktreeId);
+}
+
+// worktreeIdをDockerコンテナ名に適したIDにサニタイズ
+function sanitizeWorktreeId(worktreeId) {
+  return worktreeId.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase();
+}
+
+// Docker CLI実行ヘルパー
+async function docker(args, options = {}) {
+  const { stdout } = await execFileAsync("docker", args, {
+    maxBuffer: 10 * 1024 * 1024,
+    ...options,
+  });
+  return stdout.trim();
+}
+
+// environment.yml を読み込みパース
+async function readEnvironmentConfig(worktreeId) {
+  const ymlPath = envYmlPath(worktreeId);
+  let raw;
+  try {
+    raw = await readFile(ymlPath, "utf-8");
+  } catch {
+    throw { code: -32602, message: `environment.yml not found: ${ymlPath}` };
+  }
+
+  let parsed;
+  try {
+    parsed = YAML.load(raw);
+  } catch (err) {
+    throw { code: -32602, message: `Invalid YAML: ${err.message}` };
+  }
+
+  // 基本バリデーション
+  if (!parsed || typeof parsed !== "object") {
+    throw { code: -32602, message: "environment.yml must be a YAML object" };
+  }
+  if (parsed.version !== "1" && parsed.version !== 1) {
+    throw { code: -32602, message: `Unsupported version: ${parsed.version}. Expected "1"` };
+  }
+  // version を文字列に正規化
+  parsed.version = "1";
+  if (!parsed.base || typeof parsed.base !== "string") {
+    throw { code: -32602, message: "Missing required field: base" };
+  }
+  if (!parsed.dev || typeof parsed.dev !== "object") {
+    throw { code: -32602, message: "Missing required field: dev" };
+  }
+  if (!parsed.dev.command || typeof parsed.dev.command !== "string") {
+    throw { code: -32602, message: "Missing required field: dev.command" };
+  }
+  if (typeof parsed.dev.port !== "number" || parsed.dev.port < 1 || parsed.dev.port > 65535) {
+    throw { code: -32602, message: "dev.port must be a number between 1 and 65535" };
+  }
+
+  return parsed;
+}
+
+// 環境状態を初期化/取得
+function getOrCreateEnvState(worktreeId, branch) {
+  if (!environmentStates.has(worktreeId)) {
+    environmentStates.set(worktreeId, {
+      worktreeId,
+      branch: branch ?? worktreeId,
+      status: "idle",
+      config: null,
+      hostPort: null,
+      containerId: null,
+      error: null,
+      setupCompleted: false,
+      serviceStates: {},
+    });
+  }
+  return environmentStates.get(worktreeId);
+}
+
+const environmentHandlers = {
+  "environment.read": async (params) => {
+    const worktreeId = params.worktreeId || activeWorktreeId || "main";
+    const config = await readEnvironmentConfig(worktreeId);
+    const envState = getOrCreateEnvState(worktreeId);
+    envState.config = config;
+    return config;
+  },
+
+  "environment.start": async (params, _ws, wss) => {
+    const worktreeId = params.worktreeId;
+    const sanitized = sanitizeWorktreeId(worktreeId);
+    const containerName = `atelier-${sanitized}-app`;
+
+    // 設定を読み込み
+    const config = await readEnvironmentConfig(worktreeId);
+    const envState = getOrCreateEnvState(worktreeId);
+    envState.config = config;
+
+    // Compose対応
+    if (config.compose) {
+      return await startWithCompose(worktreeId, config, wss);
+    }
+
+    // building 状態に遷移
+    envState.status = "building";
+    broadcastNotification(wss, "environment.statusChange", {
+      worktreeId,
+      status: "building",
+    });
+
+    try {
+      // イメージをpull
+      broadcastNotification(wss, "environment.buildLog", {
+        worktreeId, stream: "stdout", data: `Pulling image: ${config.base}\n`, timestamp: Date.now(),
+      });
+
+      try {
+        await docker(["pull", config.base]);
+      } catch {
+        // ローカルにイメージがあればpull失敗は許容
+        broadcastNotification(wss, "environment.buildLog", {
+          worktreeId, stream: "stderr", data: `Pull failed, trying local image...\n`, timestamp: Date.now(),
+        });
+      }
+
+      // 既存コンテナがあれば削除
+      try {
+        await docker(["rm", "-f", containerName]);
+      } catch {
+        // 存在しない場合は無視
+      }
+
+      // コンテナ作成
+      const projectRoot = worktreeRootPath(worktreeId);
+      const workdir = config.root ? `/workspace/${config.root}` : "/workspace";
+      const createArgs = [
+        "create",
+        "--name", containerName,
+        "-v", `${projectRoot}:/workspace`,
+        "-w", workdir,
+        "-p", `0:${config.dev.port}`,
+      ];
+
+      // 環境変数
+      createArgs.push("-e", `ATELIER_WORKTREE_ID=${worktreeId}`);
+      createArgs.push("-e", `ATELIER_BRANCH=${envState.branch}`);
+      if (config.dev.env) {
+        for (const [k, v] of Object.entries(config.dev.env)) {
+          createArgs.push("-e", `${k}=${v}`);
+        }
+      }
+
+      // .env ファイル
+      const dotEnvPath = path.join(projectRoot, ".env");
+      try {
+        await access(dotEnvPath);
+        createArgs.push("--env-file", dotEnvPath);
+      } catch {
+        // .env がなければスキップ
+      }
+
+      // node_modules の named volume
+      const volumeName = `atelier-${sanitized}-node_modules`;
+      createArgs.push("-v", `${volumeName}:/workspace/node_modules`);
+
+      createArgs.push(config.base);
+      createArgs.push("tail", "-f", "/dev/null"); // コンテナをkeep-alive
+
+      broadcastNotification(wss, "environment.buildLog", {
+        worktreeId, stream: "stdout", data: `Creating container: ${containerName}\n`, timestamp: Date.now(),
+      });
+
+      await docker(createArgs);
+
+      // コンテナ起動
+      await docker(["start", containerName]);
+
+      // コンテナIDを取得
+      const containerId = await docker(["inspect", "--format={{.Id}}", containerName]);
+
+      // ホスト側ポートを取得
+      const portOutput = await docker(["port", containerName, String(config.dev.port)]);
+      const portMatch = portOutput.match(/:(\d+)/);
+      const hostPort = portMatch ? parseInt(portMatch[1], 10) : null;
+
+      envState.containerId = containerId;
+      envState.hostPort = hostPort;
+
+      // Setup実行
+      if (config.setup && config.setup.length > 0 && !envState.setupCompleted) {
+        envState.status = "setup";
+        broadcastNotification(wss, "environment.statusChange", {
+          worktreeId, status: "setup",
+        });
+
+        for (const cmd of config.setup) {
+          broadcastNotification(wss, "environment.buildLog", {
+            worktreeId, stream: "stdout", data: `Running setup: ${cmd}\n`, timestamp: Date.now(),
+          });
+
+          try {
+            const output = await docker(["exec", containerName, "sh", "-c", cmd]);
+            if (output) {
+              broadcastNotification(wss, "environment.buildLog", {
+                worktreeId, stream: "stdout", data: output + "\n", timestamp: Date.now(),
+              });
+            }
+          } catch (err) {
+            broadcastNotification(wss, "environment.buildLog", {
+              worktreeId, stream: "stderr", data: `Setup command failed: ${err.message || err}\n`, timestamp: Date.now(),
+            });
+            throw { code: -32603, message: `Setup failed: ${cmd}` };
+          }
+        }
+        envState.setupCompleted = true;
+      }
+
+      // dev command をバックグラウンドで実行
+      broadcastNotification(wss, "environment.buildLog", {
+        worktreeId, stream: "stdout", data: `Starting dev server: ${config.dev.command}\n`, timestamp: Date.now(),
+      });
+
+      // exec -d でデタッチ実行
+      await docker(["exec", "-d", containerName, "sh", "-c", config.dev.command]);
+
+      // running 状態に遷移
+      envState.status = "running";
+      envState.error = null;
+
+      broadcastNotification(wss, "environment.statusChange", {
+        worktreeId,
+        status: "running",
+        hostPort,
+        containerId,
+      });
+
+      // サービスも起動
+      if (config.services) {
+        await startServices(worktreeId, config.services, wss);
+      }
+
+      return { containerId, hostPort: hostPort ?? 0 };
+    } catch (err) {
+      envState.status = "error";
+      envState.error = err.message || String(err);
+      broadcastNotification(wss, "environment.statusChange", {
+        worktreeId,
+        status: "error",
+        error: envState.error,
+      });
+      throw typeof err === "object" && err !== null && "code" in err
+        ? err
+        : { code: -32603, message: `Failed to start environment: ${err.message || err}` };
+    }
+  },
+
+  "environment.stop": async (params, _ws, wss) => {
+    const worktreeId = params.worktreeId;
+    const envState = environmentStates.get(worktreeId);
+    if (!envState) {
+      throw { code: -32602, message: `No environment found for: ${worktreeId}` };
+    }
+
+    const sanitized = sanitizeWorktreeId(worktreeId);
+
+    // Compose対応
+    if (envState.config?.compose) {
+      return await stopWithCompose(worktreeId, envState.config, wss);
+    }
+
+    const containerName = `atelier-${sanitized}-app`;
+    try {
+      await docker(["stop", containerName]);
+    } catch {
+      // already stopped
+    }
+
+    // サービスも停止
+    await stopServices(worktreeId);
+
+    envState.status = "stopped";
+    envState.hostPort = null;
+    broadcastNotification(wss, "environment.statusChange", {
+      worktreeId, status: "stopped",
+    });
+
+    return { success: true };
+  },
+
+  "environment.restart": async (params, ws, wss) => {
+    await environmentHandlers["environment.stop"](params, ws, wss);
+    return await environmentHandlers["environment.start"](params, ws, wss);
+  },
+
+  "environment.remove": async (params, _ws, wss) => {
+    const worktreeId = params.worktreeId;
+    const envState = environmentStates.get(worktreeId);
+    const sanitized = sanitizeWorktreeId(worktreeId);
+
+    // Compose対応
+    if (envState?.config?.compose) {
+      return await removeWithCompose(worktreeId, envState.config, wss);
+    }
+
+    const containerName = `atelier-${sanitized}-app`;
+    const volumeName = `atelier-${sanitized}-node_modules`;
+
+    try {
+      await docker(["rm", "-f", containerName]);
+    } catch {
+      // 存在しない場合は無視
+    }
+
+    // named volume 削除
+    try {
+      await docker(["volume", "rm", "-f", volumeName]);
+    } catch {
+      // 存在しない場合は無視
+    }
+
+    // サービスも削除
+    await removeServices(worktreeId);
+
+    environmentStates.delete(worktreeId);
+    broadcastNotification(wss, "environment.statusChange", {
+      worktreeId, status: "idle",
+    });
+
+    return { success: true };
+  },
+
+  "environment.status": () => {
+    const result = {};
+    for (const [id, state] of environmentStates) {
+      result[id] = { ...state };
+    }
+    return result;
+  },
+
+  "environment.logs": async (params, ws) => {
+    const worktreeId = params.worktreeId;
+    const sanitized = sanitizeWorktreeId(worktreeId);
+    const containerName = `atelier-${sanitized}-app`;
+
+    try {
+      const logArgs = ["logs", "--tail", "200"];
+      if (params.follow) {
+        logArgs.push("-f");
+      }
+      logArgs.push(containerName);
+
+      const logOutput = await docker(logArgs);
+      if (logOutput) {
+        sendNotification(ws, "environment.buildLog", {
+          worktreeId,
+          stream: "stdout",
+          data: logOutput,
+          timestamp: Date.now(),
+        });
+      }
+    } catch (err) {
+      sendNotification(ws, "environment.buildLog", {
+        worktreeId,
+        stream: "stderr",
+        data: `Failed to fetch logs: ${err.message || err}\n`,
+        timestamp: Date.now(),
+      });
+    }
+
+    return { success: true };
+  },
+};
+
+// Docker Compose ヘルパー
+async function startWithCompose(worktreeId, config, wss) {
+  const sanitized = sanitizeWorktreeId(worktreeId);
+  const projectRoot = worktreeRootPath(worktreeId);
+  const composePath = path.resolve(projectRoot, config.compose);
+  const projectName = `atelier-${sanitized}`;
+
+  const envState = getOrCreateEnvState(worktreeId);
+  envState.status = "building";
+  envState.config = config;
+
+  broadcastNotification(wss, "environment.statusChange", {
+    worktreeId, status: "building",
+  });
+
+  try {
+    broadcastNotification(wss, "environment.buildLog", {
+      worktreeId, stream: "stdout", data: `Starting with docker compose: ${config.compose}\n`, timestamp: Date.now(),
+    });
+
+    await docker(["compose", "-f", composePath, "-p", projectName, "up", "-d"]);
+
+    // ポート情報の取得を試みる
+    let hostPort = null;
+    try {
+      const psOutput = await docker(["compose", "-f", composePath, "-p", projectName, "port", "app", String(config.dev.port)]);
+      const portMatch = psOutput.match(/:(\d+)/);
+      hostPort = portMatch ? parseInt(portMatch[1], 10) : null;
+    } catch {
+      // ポート取得失敗は許容
+    }
+
+    envState.status = "running";
+    envState.hostPort = hostPort;
+    envState.error = null;
+
+    broadcastNotification(wss, "environment.statusChange", {
+      worktreeId,
+      status: "running",
+      hostPort: hostPort ?? undefined,
+    });
+
+    return { containerId: projectName, hostPort: hostPort ?? 0 };
+  } catch (err) {
+    envState.status = "error";
+    envState.error = err.message || String(err);
+    broadcastNotification(wss, "environment.statusChange", {
+      worktreeId, status: "error", error: envState.error,
+    });
+    throw { code: -32603, message: `Compose start failed: ${err.message || err}` };
+  }
+}
+
+async function stopWithCompose(worktreeId, config, wss) {
+  const sanitized = sanitizeWorktreeId(worktreeId);
+  const projectRoot = worktreeRootPath(worktreeId);
+  const composePath = path.resolve(projectRoot, config.compose);
+  const projectName = `atelier-${sanitized}`;
+
+  try {
+    await docker(["compose", "-f", composePath, "-p", projectName, "stop"]);
+  } catch {
+    // already stopped
+  }
+
+  const envState = environmentStates.get(worktreeId);
+  if (envState) {
+    envState.status = "stopped";
+    envState.hostPort = null;
+  }
+
+  broadcastNotification(wss, "environment.statusChange", {
+    worktreeId, status: "stopped",
+  });
+
+  return { success: true };
+}
+
+async function removeWithCompose(worktreeId, config, wss) {
+  const sanitized = sanitizeWorktreeId(worktreeId);
+  const projectRoot = worktreeRootPath(worktreeId);
+  const composePath = path.resolve(projectRoot, config.compose);
+  const projectName = `atelier-${sanitized}`;
+
+  try {
+    await docker(["compose", "-f", composePath, "-p", projectName, "down", "-v"]);
+  } catch {
+    // 存在しない場合は無視
+  }
+
+  environmentStates.delete(worktreeId);
+  broadcastNotification(wss, "environment.statusChange", {
+    worktreeId, status: "idle",
+  });
+
+  return { success: true };
+}
+
+// サービス管理ヘルパー
+async function startServices(worktreeId, services, wss) {
+  const sanitized = sanitizeWorktreeId(worktreeId);
+  const envState = environmentStates.get(worktreeId);
+
+  for (const [name, svc] of Object.entries(services)) {
+    const containerName = `atelier-${sanitized}-${name}`;
+
+    try {
+      // 既存コンテナを削除
+      try { await docker(["rm", "-f", containerName]); } catch { /* noop */ }
+
+      const createArgs = ["create", "--name", containerName];
+
+      // ポートマッピング
+      if (svc.port) {
+        const containerPort = typeof svc.port === "number" ? svc.port : svc.port.container;
+        createArgs.push("-p", `0:${containerPort}`);
+      }
+
+      // 環境変数
+      if (svc.env) {
+        for (const [k, v] of Object.entries(svc.env)) {
+          createArgs.push("-e", `${k}=${v}`);
+        }
+      }
+
+      // ボリューム
+      if (svc.volumes) {
+        for (const vol of svc.volumes) {
+          createArgs.push("-v", vol);
+        }
+      }
+
+      createArgs.push(svc.image);
+      await docker(createArgs);
+      await docker(["start", containerName]);
+
+      // ホストポート取得
+      let hostPort = null;
+      if (svc.port) {
+        const containerPort = typeof svc.port === "number" ? svc.port : svc.port.container;
+        try {
+          const portOutput = await docker(["port", containerName, String(containerPort)]);
+          const m = portOutput.match(/:(\d+)/);
+          hostPort = m ? parseInt(m[1], 10) : null;
+        } catch { /* noop */ }
+      }
+
+      if (envState) {
+        envState.serviceStates[name] = {
+          name,
+          containerId: containerName,
+          status: "running",
+          hostPort,
+        };
+      }
+
+      broadcastNotification(wss, "environment.buildLog", {
+        worktreeId, stream: "stdout", data: `Service ${name} started (${svc.image})\n`, timestamp: Date.now(),
+      });
+    } catch (err) {
+      if (envState) {
+        envState.serviceStates[name] = {
+          name,
+          containerId: null,
+          status: "error",
+          hostPort: null,
+        };
+      }
+      broadcastNotification(wss, "environment.buildLog", {
+        worktreeId, stream: "stderr", data: `Failed to start service ${name}: ${err.message || err}\n`, timestamp: Date.now(),
+      });
+    }
+  }
+}
+
+async function stopServices(worktreeId) {
+  const envState = environmentStates.get(worktreeId);
+  if (!envState) return;
+  for (const [name, svc] of Object.entries(envState.serviceStates)) {
+    if (svc.containerId) {
+      try { await docker(["stop", svc.containerId]); } catch { /* noop */ }
+    }
+    envState.serviceStates[name] = { ...svc, status: "stopped", hostPort: null };
+  }
+}
+
+async function removeServices(worktreeId) {
+  const envState = environmentStates.get(worktreeId);
+  if (!envState) return;
+  for (const svc of Object.values(envState.serviceStates)) {
+    if (svc.containerId) {
+      try { await docker(["rm", "-f", svc.containerId]); } catch { /* noop */ }
+    }
+  }
+}
+
+// environment.yml のファイル監視
+let envYmlWatcher = null;
+
+function setupEnvironmentWatch(wss) {
+  const ymlPath = envYmlPath("main");
+  const dir = path.dirname(ymlPath);
+
+  try {
+    envYmlWatcher = fsWatch(dir, { persistent: false }, async (eventType, filename) => {
+      if (filename === "environment.yml") {
+        try {
+          const config = await readEnvironmentConfig("main");
+          broadcastNotification(wss, "environment.configChanged", {
+            worktreeId: "main",
+            config,
+          });
+        } catch {
+          // ファイルが一時的に読めない場合は無視
+        }
+      }
+    });
+  } catch {
+    // .atelier ディレクトリが存在しない場合はスキップ
+    console.log("[dev-server] .atelier directory not found, skipping environment.yml watch");
+  }
+}
+
 function sendNotification(ws, method, params) {
   if (ws.readyState === 1) {
     ws.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
@@ -967,6 +1582,9 @@ function broadcastNotification(wss, method, params) {
 
 // サーバー起動
 const wss = new WebSocketServer({ port: PORT });
+
+// environment.yml 監視を開始
+setupEnvironmentWatch(wss);
 
 wss.on("connection", (ws) => {
   console.log("[dev-server] Client connected");
@@ -989,7 +1607,7 @@ wss.on("connection", (ws) => {
     const { id, method, params } = request;
     console.log(`[dev-server] → ${method}`, params);
 
-    const allHandlers = { ...handlers, ...gitHandlers, ...studioHandlers, ...terminalHandlers, ...previewHandlers, ...commissionHandlers, ...chatHandlers };
+    const allHandlers = { ...handlers, ...gitHandlers, ...studioHandlers, ...terminalHandlers, ...previewHandlers, ...commissionHandlers, ...chatHandlers, ...environmentHandlers };
     const handler = allHandlers[method];
     if (!handler) {
       ws.send(
@@ -1034,12 +1652,18 @@ process.on("SIGINT", () => {
   if (devServerProcess) {
     devServerProcess.kill();
   }
+  if (envYmlWatcher) {
+    envYmlWatcher.close();
+  }
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
   if (devServerProcess) {
     devServerProcess.kill();
+  }
+  if (envYmlWatcher) {
+    envYmlWatcher.close();
   }
   process.exit(0);
 });

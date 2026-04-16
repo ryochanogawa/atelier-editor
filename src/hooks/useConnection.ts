@@ -14,6 +14,9 @@ import type {
   PreviewLogParams,
   ChatStreamParams,
   ChatCodeChangeParams,
+  EnvironmentStatusChangeParams,
+  EnvironmentBuildLogParams,
+  EnvironmentConfigChangedParams,
 } from "@/lib/rpc/types";
 
 export function useConnection(): void {
@@ -124,6 +127,23 @@ export function useConnection(): void {
       });
     });
 
+    const unsubEnvStatusChange = client.onNotification("environment.statusChange", (params: EnvironmentStatusChangeParams) => {
+      store().setEnvironmentStatus(params.worktreeId, params.status, {
+        hostPort: params.hostPort,
+        containerId: params.containerId,
+        error: params.error,
+      });
+    });
+
+    const unsubEnvBuildLog = client.onNotification("environment.buildLog", (params: EnvironmentBuildLogParams) => {
+      store().appendBuildLog(params.worktreeId, params.data);
+    });
+
+    const unsubEnvConfigChanged = client.onNotification("environment.configChanged", (params: EnvironmentConfigChangedParams) => {
+      store().setEnvironmentConfig(params.worktreeId, params.config);
+      store().addToast("environment.yml が更新されました", "info");
+    });
+
     async function initWorkspace(): Promise<void> {
       try {
         const [info, tree, gitStatus, branches, worktrees] = await Promise.all([
@@ -145,6 +165,15 @@ export function useConnection(): void {
         }
 
         // Commission一覧の初期取得はCommissionPanelに委譲（二重フェッチ防止）
+
+        // 環境設定の初期読み込み（environment.yml が存在する場合のみ）
+        try {
+          const envConfig = await client.call("environment.read", {});
+          const activeId = mainWorktree?.id ?? "main";
+          store().setEnvironmentConfig(activeId, envConfig);
+        } catch {
+          // environment.yml が存在しない場合は無視
+        }
       } catch (err) {
         console.error("Failed to initialize workspace:", err);
       }
@@ -196,6 +225,9 @@ export function useConnection(): void {
       unsubPreviewLog();
       unsubChatStream();
       unsubChatCodeChange();
+      unsubEnvStatusChange();
+      unsubEnvBuildLog();
+      unsubEnvConfigChanged();
       client.disconnect();
     };
   }, []);

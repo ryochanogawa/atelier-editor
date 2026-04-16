@@ -17,6 +17,11 @@ import type {
   ChatStatus,
   CodeChange,
 } from "@/lib/rpc/types";
+import type {
+  EnvironmentConfig,
+  EnvironmentState,
+  EnvironmentStatus,
+} from "@/lib/environment/types";
 
 // === Connection Slice ===
 
@@ -269,7 +274,7 @@ const createStudioSlice: StateCreator<WorkspaceStore, [], [], StudioSlice> = (
 
 // === Sidebar Slice ===
 
-export type SidebarView = "files" | "git" | "commission" | "chat";
+export type SidebarView = "files" | "git" | "environment" | "commission" | "chat";
 
 interface SidebarSlice {
   sidebarView: SidebarView;
@@ -683,6 +688,101 @@ const createChatSlice: StateCreator<WorkspaceStore, [], [], ChatSlice> = (
     }),
 });
 
+// === Environment Slice ===
+
+export type EnvironmentPanelTab = "overview" | "logs";
+
+interface EnvironmentSlice {
+  environments: Record<string, EnvironmentState>;
+  buildLogs: Record<string, string[]>;
+  environmentPanelTab: EnvironmentPanelTab;
+
+  setEnvironmentConfig: (worktreeId: string, config: EnvironmentConfig) => void;
+  setEnvironmentStatus: (
+    worktreeId: string,
+    status: EnvironmentStatus,
+    extra?: { hostPort?: number; containerId?: string; error?: string }
+  ) => void;
+  appendBuildLog: (worktreeId: string, line: string) => void;
+  clearBuildLogs: (worktreeId: string) => void;
+  removeEnvironment: (worktreeId: string) => void;
+  setEnvironmentPanelTab: (tab: EnvironmentPanelTab) => void;
+}
+
+const MAX_BUILD_LOGS = 1000;
+
+const createEnvironmentSlice: StateCreator<WorkspaceStore, [], [], EnvironmentSlice> = (
+  set
+) => ({
+  environments: {},
+  buildLogs: {},
+  environmentPanelTab: "overview",
+
+  setEnvironmentConfig: (worktreeId, config) =>
+    set((state) => {
+      const existing = state.environments[worktreeId];
+      return {
+        environments: {
+          ...state.environments,
+          [worktreeId]: {
+            worktreeId,
+            branch: existing?.branch ?? worktreeId,
+            status: existing?.status ?? "idle",
+            config,
+            hostPort: existing?.hostPort ?? null,
+            containerId: existing?.containerId ?? null,
+            error: existing?.error ?? null,
+            setupCompleted: existing?.setupCompleted ?? false,
+            serviceStates: existing?.serviceStates ?? {},
+          },
+        },
+      };
+    }),
+
+  setEnvironmentStatus: (worktreeId, status, extra) =>
+    set((state) => {
+      const existing = state.environments[worktreeId];
+      if (!existing) return state;
+      return {
+        environments: {
+          ...state.environments,
+          [worktreeId]: {
+            ...existing,
+            status,
+            hostPort: extra?.hostPort ?? existing.hostPort,
+            containerId: extra?.containerId ?? existing.containerId,
+            error: extra?.error ?? (status === "error" ? existing.error : null),
+          },
+        },
+      };
+    }),
+
+  appendBuildLog: (worktreeId, line) =>
+    set((state) => {
+      const logs = [...(state.buildLogs[worktreeId] ?? []), line];
+      return {
+        buildLogs: {
+          ...state.buildLogs,
+          [worktreeId]: logs.length > MAX_BUILD_LOGS ? logs.slice(-MAX_BUILD_LOGS) : logs,
+        },
+      };
+    }),
+
+  clearBuildLogs: (worktreeId) =>
+    set((state) => ({
+      buildLogs: { ...state.buildLogs, [worktreeId]: [] },
+    })),
+
+  removeEnvironment: (worktreeId) =>
+    set((state) => {
+      const { [worktreeId]: _removed, ...rest } = state.environments;
+      const { [worktreeId]: _removedLogs, ...restLogs } = state.buildLogs;
+      return { environments: rest, buildLogs: restLogs };
+    }),
+
+  setEnvironmentPanelTab: (environmentPanelTab) => set({ environmentPanelTab }),
+});
+
 // === 統合 Store ===
 
 export type WorkspaceStore = ConnectionSlice &
@@ -697,7 +797,8 @@ export type WorkspaceStore = ConnectionSlice &
   TerminalSlice &
   CommissionSlice &
   PreviewSlice &
-  ChatSlice;
+  ChatSlice &
+  EnvironmentSlice;
 
 export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createConnectionSlice(...a),
@@ -713,4 +814,5 @@ export const useWorkspaceStore = create<WorkspaceStore>()((...a) => ({
   ...createCommissionSlice(...a),
   ...createPreviewSlice(...a),
   ...createChatSlice(...a),
+  ...createEnvironmentSlice(...a),
 }));

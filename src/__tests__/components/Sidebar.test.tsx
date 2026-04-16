@@ -21,12 +21,17 @@ vi.mock("@/components/Editor/Chat/ChatPanel", () => ({
   ChatPanel: () => <div data-testid="chat-panel">ChatPanel</div>,
 }));
 
+vi.mock("@/components/Editor/Environment/EnvironmentPanel", () => ({
+  EnvironmentPanel: () => <div data-testid="environment-panel">EnvironmentPanel</div>,
+}));
+
 describe("Sidebar", () => {
-  it("renders activity bar with Explorer, Source Control, Commission, and AI Chat buttons", () => {
+  it("renders activity bar with all view buttons including Environment", () => {
     render(<Sidebar />);
 
     expect(screen.getByTitle("Explorer")).toBeInTheDocument();
     expect(screen.getByTitle("Source Control")).toBeInTheDocument();
+    expect(screen.getByTitle("Environment")).toBeInTheDocument();
     expect(screen.getByTitle("Commission")).toBeInTheDocument();
     expect(screen.getByTitle("AI Chat")).toBeInTheDocument();
   });
@@ -137,5 +142,37 @@ describe("Sidebar", () => {
 
     expect(screen.getByTestId("file-explorer")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-panel")).not.toBeInTheDocument();
+  });
+
+  // Environment view
+  it("switches to EnvironmentPanel when Environment clicked", async () => {
+    const user = userEvent.setup();
+    render(<Sidebar />);
+
+    await user.click(screen.getByTitle("Environment"));
+
+    expect(screen.getByTestId("environment-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("file-explorer")).not.toBeInTheDocument();
+  });
+
+  it("sets sidebarView to environment on Environment click", async () => {
+    const user = userEvent.setup();
+    render(<Sidebar />);
+
+    await user.click(screen.getByTitle("Environment"));
+    expect(useWorkspaceStore.getState().sidebarView).toBe("environment");
+  });
+
+  it("switches from Environment back to Explorer", async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({ sidebarView: "environment" });
+    render(<Sidebar />);
+
+    expect(screen.getByTestId("environment-panel")).toBeInTheDocument();
+
+    await user.click(screen.getByTitle("Explorer"));
+
+    expect(screen.getByTestId("file-explorer")).toBeInTheDocument();
+    expect(screen.queryByTestId("environment-panel")).not.toBeInTheDocument();
   });
 });

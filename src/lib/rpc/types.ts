@@ -1,3 +1,9 @@
+import type {
+  EnvironmentConfig,
+  EnvironmentState,
+  EnvironmentStatus,
+} from "@/lib/environment/types";
+
 // === JSON-RPC 2.0 基本型 ===
 
 export type JsonRpcId = string | number;
@@ -200,6 +206,36 @@ export interface RpcMethodMap {
     };
   };
 
+  // Environment methods
+  "environment.read": {
+    params: { worktreeId?: string };
+    result: EnvironmentConfig;
+  };
+  "environment.start": {
+    params: { worktreeId: string };
+    result: { containerId: string; hostPort: number };
+  };
+  "environment.stop": {
+    params: { worktreeId: string };
+    result: { success: boolean };
+  };
+  "environment.restart": {
+    params: { worktreeId: string };
+    result: { containerId: string; hostPort: number };
+  };
+  "environment.remove": {
+    params: { worktreeId: string };
+    result: { success: boolean };
+  };
+  "environment.status": {
+    params: Record<string, never>;
+    result: Record<string, EnvironmentState>;
+  };
+  "environment.logs": {
+    params: { worktreeId: string; follow?: boolean };
+    result: { success: boolean };
+  };
+
   // Chat methods
   "chat.send": {
     params: { chatId: string; message: string; context: ChatContext };
@@ -252,6 +288,26 @@ export interface PreviewLogParams {
   timestamp: string;
 }
 
+export interface EnvironmentStatusChangeParams {
+  worktreeId: string;
+  status: EnvironmentStatus;
+  hostPort?: number;
+  containerId?: string;
+  error?: string;
+}
+
+export interface EnvironmentBuildLogParams {
+  worktreeId: string;
+  stream: "stdout" | "stderr";
+  data: string;
+  timestamp: number;
+}
+
+export interface EnvironmentConfigChangedParams {
+  worktreeId: string;
+  config: EnvironmentConfig;
+}
+
 export interface NotificationMap {
   "fs.watch": FsWatchParams;
   "git.changed": GitChangeParams;
@@ -265,6 +321,9 @@ export interface NotificationMap {
   "preview.log": PreviewLogParams;
   "chat.stream": ChatStreamParams;
   "chat.codeChange": ChatCodeChangeParams;
+  "environment.statusChange": EnvironmentStatusChangeParams;
+  "environment.buildLog": EnvironmentBuildLogParams;
+  "environment.configChanged": EnvironmentConfigChangedParams;
 }
 
 // === Git ドメイン型 ===

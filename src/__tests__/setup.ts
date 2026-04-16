@@ -51,6 +51,10 @@ afterEach(() => {
     previewError: null,
     previewLogs: [],
     activeViewport: null,
+    // Phase 7: Environment slice
+    environments: {},
+    buildLogs: {},
+    environmentPanelTab: "overview",
   });
 });
 
