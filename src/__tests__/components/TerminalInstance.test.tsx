@@ -131,7 +131,7 @@ describe("TerminalInstance", () => {
 
   it("writes exit message and marks terminal exited on terminal.exit", async () => {
     useWorkspaceStore.setState({
-      terminalSessions: [{ sessionId: "sess1", active: true }],
+      terminalSessions: [{ sessionId: "sess1", active: true, target: "host" as const }],
     });
 
     render(<TerminalInstance sessionId="sess1" isActive={true} />);

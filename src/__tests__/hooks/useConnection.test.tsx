@@ -32,6 +32,11 @@ describe("useConnection", () => {
   let unsubCommissionCompleted: ReturnType<typeof vi.fn>;
   let unsubPreviewStatus: ReturnType<typeof vi.fn>;
   let unsubPreviewLog: ReturnType<typeof vi.fn>;
+  let unsubChatStream: ReturnType<typeof vi.fn>;
+  let unsubChatCodeChange: ReturnType<typeof vi.fn>;
+  let unsubEnvStatusChange: ReturnType<typeof vi.fn>;
+  let unsubEnvBuildLog: ReturnType<typeof vi.fn>;
+  let unsubEnvConfigChanged: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     notificationCallbacks = {};
@@ -44,6 +49,11 @@ describe("useConnection", () => {
     unsubCommissionCompleted = vi.fn();
     unsubPreviewStatus = vi.fn();
     unsubPreviewLog = vi.fn();
+    unsubChatStream = vi.fn();
+    unsubChatCodeChange = vi.fn();
+    unsubEnvStatusChange = vi.fn();
+    unsubEnvBuildLog = vi.fn();
+    unsubEnvConfigChanged = vi.fn();
 
     mockOnStatusChange.mockImplementation((cb: (status: string) => void) => {
       statusChangeCallback = cb;
@@ -61,6 +71,11 @@ describe("useConnection", () => {
         "commission.completed": unsubCommissionCompleted,
         "preview.statusChange": unsubPreviewStatus,
         "preview.log": unsubPreviewLog,
+        "chat.stream": unsubChatStream,
+        "chat.codeChange": unsubChatCodeChange,
+        "environment.statusChange": unsubEnvStatusChange,
+        "environment.buildLog": unsubEnvBuildLog,
+        "environment.configChanged": unsubEnvConfigChanged,
       };
       return unsubs[method] ?? vi.fn();
     });
@@ -96,6 +111,11 @@ describe("useConnection", () => {
       expect(methods).toContain("commission.completed");
       expect(methods).toContain("preview.statusChange");
       expect(methods).toContain("preview.log");
+      expect(methods).toContain("chat.stream");
+      expect(methods).toContain("chat.codeChange");
+      expect(methods).toContain("environment.statusChange");
+      expect(methods).toContain("environment.buildLog");
+      expect(methods).toContain("environment.configChanged");
     });
   });
 
@@ -689,6 +709,175 @@ describe("useConnection", () => {
     });
   });
 
+  // ── environment.statusChange → preview auto-set ──
+
+  describe("environment.statusChange notification – preview integration", () => {
+    it("auto-sets preview URL when container becomes running for active worktree", () => {
+      useWorkspaceStore.setState({ activeWorktreeId: "wt-1" });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["environment.statusChange"]({
+        worktreeId: "wt-1",
+        status: "running",
+        hostPort: 49001,
+        containerId: "abc123",
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.previewUrl).toBe("http://localhost:49001");
+      expect(state.previewPort).toBe(49001);
+      expect(state.previewSource).toBe("container");
+      expect(state.devServerStatus).toBe("running");
+      expect(state.previewVisible).toBe(true);
+    });
+
+    it("does not set preview URL when worktreeId does not match active worktree", () => {
+      useWorkspaceStore.setState({ activeWorktreeId: "wt-1" });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["environment.statusChange"]({
+        worktreeId: "wt-other",
+        status: "running",
+        hostPort: 49001,
+        containerId: "abc123",
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.previewUrl).toBeNull();
+      expect(state.devServerStatus).toBe("stopped");
+    });
+
+    it("does not set preview URL when hostPort is absent", () => {
+      useWorkspaceStore.setState({ activeWorktreeId: "wt-1" });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["environment.statusChange"]({
+        worktreeId: "wt-1",
+        status: "running",
+        containerId: "abc123",
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.previewUrl).toBeNull();
+    });
+
+    it("clears container preview when container stops for active worktree", () => {
+      useWorkspaceStore.setState({
+        activeWorktreeId: "wt-1",
+        previewUrl: "http://localhost:49001",
+        previewPort: 49001,
+        previewSource: "container",
+        devServerStatus: "running",
+        previewVisible: true,
+      });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["environment.statusChange"]({
+        worktreeId: "wt-1",
+        status: "stopped",
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.previewUrl).toBeNull();
+      expect(state.previewPort).toBeNull();
+      expect(state.devServerStatus).toBe("stopped");
+    });
+
+    it("clears container preview when container errors for active worktree", () => {
+      useWorkspaceStore.setState({
+        activeWorktreeId: "wt-1",
+        previewUrl: "http://localhost:49001",
+        previewPort: 49001,
+        previewSource: "container",
+        devServerStatus: "running",
+      });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["environment.statusChange"]({
+        worktreeId: "wt-1",
+        status: "error",
+        error: "Container crashed",
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.previewUrl).toBeNull();
+      expect(state.devServerStatus).toBe("stopped");
+    });
+
+    it("does not clear vite preview when container stops", () => {
+      useWorkspaceStore.setState({
+        activeWorktreeId: "wt-1",
+        previewUrl: "http://localhost:3000",
+        previewPort: 3000,
+        previewSource: "vite",
+        devServerStatus: "running",
+      });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["environment.statusChange"]({
+        worktreeId: "wt-1",
+        status: "stopped",
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.previewUrl).toBe("http://localhost:3000");
+      expect(state.devServerStatus).toBe("running");
+      expect(state.previewSource).toBe("vite");
+    });
+
+    it("does not clear container preview when different worktree stops", () => {
+      useWorkspaceStore.setState({
+        activeWorktreeId: "wt-1",
+        previewUrl: "http://localhost:49001",
+        previewPort: 49001,
+        previewSource: "container",
+        devServerStatus: "running",
+      });
+
+      renderHook(() => useConnection());
+      notificationCallbacks["environment.statusChange"]({
+        worktreeId: "wt-other",
+        status: "stopped",
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.previewUrl).toBe("http://localhost:49001");
+      expect(state.devServerStatus).toBe("running");
+    });
+  });
+
+  // ── environment.buildLog notification ──
+
+  describe("environment.buildLog notification", () => {
+    it("appends build log to store", () => {
+      renderHook(() => useConnection());
+      notificationCallbacks["environment.buildLog"]({
+        worktreeId: "wt-1",
+        data: "Step 1/5: Building...",
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.buildLogs["wt-1"]).toContain("Step 1/5: Building...");
+    });
+  });
+
+  // ── environment.configChanged notification ──
+
+  describe("environment.configChanged notification", () => {
+    it("updates environment config and shows toast", () => {
+      renderHook(() => useConnection());
+      const config = { image: "node:20", ports: [3000] };
+      notificationCallbacks["environment.configChanged"]({
+        worktreeId: "wt-1",
+        config,
+      });
+
+      const state = useWorkspaceStore.getState();
+      expect(state.environments["wt-1"]).toBeDefined();
+      expect(state.toasts.some((t) => t.message.includes("environment.yml"))).toBe(true);
+    });
+  });
+
   // ── Cleanup ──
 
   describe("cleanup", () => {
@@ -705,6 +894,11 @@ describe("useConnection", () => {
       expect(unsubCommissionCompleted).toHaveBeenCalledOnce();
       expect(unsubPreviewStatus).toHaveBeenCalledOnce();
       expect(unsubPreviewLog).toHaveBeenCalledOnce();
+      expect(unsubChatStream).toHaveBeenCalledOnce();
+      expect(unsubChatCodeChange).toHaveBeenCalledOnce();
+      expect(unsubEnvStatusChange).toHaveBeenCalledOnce();
+      expect(unsubEnvBuildLog).toHaveBeenCalledOnce();
+      expect(unsubEnvConfigChanged).toHaveBeenCalledOnce();
       expect(mockDisconnect).toHaveBeenCalledOnce();
     });
   });

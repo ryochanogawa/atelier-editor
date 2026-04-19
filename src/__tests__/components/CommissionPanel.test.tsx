@@ -26,7 +26,7 @@ describe("CommissionPanel", () => {
 
   it("fetches commission definitions on mount", () => {
     render(<CommissionPanel />);
-    expect(mockCall).toHaveBeenCalledWith("commission.list", {});
+    expect(mockCall).toHaveBeenCalledWith("commission.list", { worktreeId: undefined });
   });
 
   it("renders CommissionSelector with fetched definitions", async () => {
@@ -41,9 +41,12 @@ describe("CommissionPanel", () => {
     });
   });
 
-  it("shows Run Commission button when not running", () => {
+  it("shows Run Commission button when not running", async () => {
+    mockCall.mockResolvedValueOnce([{ name: "build", description: "Build" }]);
     render(<CommissionPanel />);
-    expect(screen.getByRole("button", { name: "Run Commission" })).toBeInTheDocument();
+    await vi.waitFor(() => {
+      expect(screen.getByRole("button", { name: "Run Commission" })).toBeInTheDocument();
+    });
   });
 
   it("shows Abort button when commission is running", () => {
@@ -132,7 +135,7 @@ describe("CommissionPanel", () => {
     await user.selectOptions(screen.getByRole("combobox"), "build");
     await user.click(screen.getByRole("button", { name: "Run Commission" }));
 
-    expect(mockCall).toHaveBeenCalledWith("commission.run", { commissionName: "build" });
+    expect(mockCall).toHaveBeenCalledWith("commission.run", { commissionName: "build", worktreeId: undefined });
   });
 
   it("calls commission.abort when Abort is clicked", async () => {
@@ -225,7 +228,7 @@ describe("CommissionPanel", () => {
     render(<CommissionPanel />);
 
     await vi.waitFor(() => {
-      expect(mockCall).toHaveBeenCalledWith("commission.list", {});
+      expect(mockCall).toHaveBeenCalledWith("commission.list", { worktreeId: undefined });
     });
     // definitions remain empty
     expect(useWorkspaceStore.getState().commissionDefinitions).toEqual([]);

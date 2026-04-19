@@ -19,6 +19,7 @@ describe("workspace store – PreviewSlice", () => {
     expect(state.previewError).toBeNull();
     expect(state.previewLogs).toEqual([]);
     expect(state.activeViewport).toBeNull();
+    expect(state.previewSource).toBe("vite");
   });
 
   // ── setPreviewVisible ──
@@ -79,6 +80,20 @@ describe("workspace store – PreviewSlice", () => {
     getState().setPreviewUrl(null, null);
     expect(getState().previewUrl).toBeNull();
     expect(getState().previewPort).toBeNull();
+  });
+
+  it("setPreviewUrl sets source when provided", () => {
+    getState().setPreviewUrl("http://localhost:49001", 49001, "container");
+    expect(getState().previewSource).toBe("container");
+
+    getState().setPreviewUrl("http://localhost:3000", 3000, "vite");
+    expect(getState().previewSource).toBe("vite");
+  });
+
+  it("setPreviewUrl preserves source when not provided", () => {
+    getState().setPreviewUrl("http://localhost:49001", 49001, "container");
+    getState().setPreviewUrl("http://localhost:49002", 49002);
+    expect(getState().previewSource).toBe("container");
   });
 
   // ── setPreviewError ──

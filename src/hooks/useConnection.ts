@@ -133,6 +133,26 @@ export function useConnection(): void {
         containerId: params.containerId,
         error: params.error,
       });
+
+      // コンテナが running になったらプレビューURLを自動設定
+      if (params.status === "running" && params.hostPort) {
+        const { activeWorktreeId } = store();
+        if (params.worktreeId === activeWorktreeId) {
+          const url = `http://localhost:${params.hostPort}`;
+          store().setPreviewUrl(url, params.hostPort, "container");
+          store().setDevServerStatus("running");
+          store().setPreviewVisible(true);
+        }
+      }
+
+      // コンテナが stopped/error になったらコンテナプレビューをクリア
+      if ((params.status === "stopped" || params.status === "error") && store().previewSource === "container") {
+        const { activeWorktreeId } = store();
+        if (params.worktreeId === activeWorktreeId) {
+          store().setPreviewUrl(null, null, "container");
+          store().setDevServerStatus("stopped");
+        }
+      }
     });
 
     const unsubEnvBuildLog = client.onNotification("environment.buildLog", (params: EnvironmentBuildLogParams) => {

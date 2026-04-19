@@ -26,7 +26,7 @@ describe("CommissionSlice", () => {
     it("stores commission definitions", () => {
       const defs: CommissionDefinition[] = [
         { name: "build", description: "Build the project" },
-        { name: "lint", description: "Run linter", params: { fix: true } },
+        { name: "lint", description: "Run linter", params: { fix: { type: "boolean", description: "Auto-fix" } } },
       ];
 
       getState().setCommissionDefinitions(defs);
@@ -39,6 +39,49 @@ describe("CommissionSlice", () => {
       expect(getState().commissionDefinitions).toEqual([
         { name: "new", description: "New" },
       ]);
+    });
+
+    it("clears loading and error flags when definitions are set", () => {
+      getState().setCommissionDefinitionsLoading(true);
+      getState().setCommissionDefinitionsError("Network error");
+
+      getState().setCommissionDefinitions([{ name: "build", description: "Build" }]);
+
+      expect(getState().commissionDefinitionsLoading).toBe(false);
+      expect(getState().commissionDefinitionsError).toBeNull();
+    });
+  });
+
+  // ── setCommissionDefinitionsLoading ──
+
+  describe("setCommissionDefinitionsLoading", () => {
+    it("sets loading to true", () => {
+      getState().setCommissionDefinitionsLoading(true);
+      expect(getState().commissionDefinitionsLoading).toBe(true);
+    });
+
+    it("sets loading to false", () => {
+      getState().setCommissionDefinitionsLoading(true);
+      getState().setCommissionDefinitionsLoading(false);
+      expect(getState().commissionDefinitionsLoading).toBe(false);
+    });
+  });
+
+  // ── setCommissionDefinitionsError ──
+
+  describe("setCommissionDefinitionsError", () => {
+    it("sets error message and clears loading", () => {
+      getState().setCommissionDefinitionsLoading(true);
+      getState().setCommissionDefinitionsError("Failed to fetch");
+
+      expect(getState().commissionDefinitionsError).toBe("Failed to fetch");
+      expect(getState().commissionDefinitionsLoading).toBe(false);
+    });
+
+    it("clears error with null", () => {
+      getState().setCommissionDefinitionsError("Some error");
+      getState().setCommissionDefinitionsError(null);
+      expect(getState().commissionDefinitionsError).toBeNull();
     });
   });
 

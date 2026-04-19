@@ -149,7 +149,7 @@ export interface RpcMethodMap {
 
   // Terminal methods
   "terminal.create": {
-    params: { cols?: number; rows?: number; shell?: string };
+    params: { cols?: number; rows?: number; shell?: string; containerId?: string };
     result: { sessionId: string };
   };
   "terminal.input": {

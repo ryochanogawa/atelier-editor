@@ -13,17 +13,41 @@ export function TerminalPanel() {
   const removeTerminalSession = useWorkspaceStore((s) => s.removeTerminalSession);
   const setTerminalVisible = useWorkspaceStore((s) => s.setTerminalVisible);
   const status = useWorkspaceStore((s) => s.status);
+  const environments = useWorkspaceStore((s) => s.environments);
+  const activeWorktreeId = useWorkspaceStore((s) => s.activeWorktreeId);
 
   const autoCreatedRef = useRef(false);
+
+  // 現在のworktreeで稼働中のコンテナを取得
+  const runningContainer = activeWorktreeId
+    ? environments[activeWorktreeId]
+    : undefined;
+  const hasRunningContainer =
+    runningContainer?.status === "running" && runningContainer.containerId;
 
   const createTerminal = useCallback(async () => {
     try {
       const { sessionId } = await getRpcClient().call("terminal.create", {});
-      addTerminalSession(sessionId);
+      addTerminalSession(sessionId, { target: "host" });
     } catch (err) {
       console.error("Failed to create terminal:", err);
     }
   }, [addTerminalSession]);
+
+  const createContainerTerminal = useCallback(async () => {
+    if (!hasRunningContainer || !runningContainer?.containerId) return;
+    try {
+      const { sessionId } = await getRpcClient().call("terminal.create", {
+        containerId: runningContainer.containerId,
+      });
+      addTerminalSession(sessionId, {
+        target: "container",
+        containerId: runningContainer.containerId,
+      });
+    } catch (err) {
+      console.error("Failed to create container terminal:", err);
+    }
+  }, [hasRunningContainer, runningContainer?.containerId, addTerminalSession]);
 
   // セッション0件のとき自動作成
   useEffect(() => {
@@ -68,10 +92,15 @@ export function TerminalPanel() {
             >
               <button
                 type="button"
-                className="truncate"
+                className="flex items-center gap-1 truncate"
                 onClick={() => setActiveTerminalId(session.sessionId)}
               >
-                bash ({i + 1})
+                {session.target === "container" ? (
+                  <span className="inline-block h-2 w-2 rounded-sm bg-[#4ec9b0]" title="Container" />
+                ) : (
+                  <span className="inline-block h-2 w-2 rounded-sm bg-[#569cd6]" title="Host" />
+                )}
+                {session.target === "container" ? `container (${i + 1})` : `bash (${i + 1})`}
                 {!session.active && (
                   <span className="ml-1 text-[10px] text-[#858585]">exited</span>
                 )}
@@ -91,17 +120,33 @@ export function TerminalPanel() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1 px-2">
-          {/* New terminal button */}
+          {/* New host terminal button */}
           <button
             type="button"
             className="flex h-6 w-6 items-center justify-center rounded text-[#969696] hover:bg-[#3c3c3c] hover:text-white"
             onClick={createTerminal}
-            title="New Terminal"
+            title="New Terminal (Host)"
           >
             <svg viewBox="0 0 16 16" className="h-4 w-4" fill="currentColor">
               <path d="M14 7v1H8v6H7V8H1V7h6V1h1v6h6z" />
             </svg>
           </button>
+          {/* New container terminal button */}
+          {hasRunningContainer && (
+            <button
+              type="button"
+              className="flex h-6 items-center gap-1 rounded px-1.5 text-[#4ec9b0] hover:bg-[#3c3c3c]"
+              onClick={createContainerTerminal}
+              title="New Terminal (Container)"
+            >
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+                <path d="M14 7v1H8v6H7V8H1V7h6V1h1v6h6z" />
+              </svg>
+              <svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor">
+                <path d="M1 3h14v2H1V3zm0 4h14v2H1V7zm0 4h14v2H1v-2z" />
+              </svg>
+            </button>
+          )}
           {/* Close panel button */}
           <button
             type="button"

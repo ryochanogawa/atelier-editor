@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { RpcClient } from "@/lib/rpc/client";
+import { RpcClient, type RpcClientOptions } from "@/lib/rpc/client";
 
 // --- Mock WebSocket with controllable lifecycle ---
 
@@ -82,7 +82,7 @@ afterEach(() => {
   (globalThis as unknown as Record<string, unknown>).WebSocket = OriginalWebSocket;
 });
 
-function createClient(overrides?: Partial<Parameters<typeof RpcClient.prototype.connect>[0]>) {
+function createClient(overrides?: Partial<RpcClientOptions>) {
   return new RpcClient({
     url: "ws://localhost:4000",
     requestTimeout: 5000,
@@ -180,7 +180,11 @@ describe("RpcClient", () => {
     });
 
     it("rejects on timeout", async () => {
-      const client = createClient({ requestTimeout: 1000 });
+      const client = new RpcClient({
+        url: "ws://localhost:4000",
+        requestTimeout: 1000,
+        reconnect: { enabled: false },
+      });
       client.connect();
       MockWS.latest().simulateOpen();
 

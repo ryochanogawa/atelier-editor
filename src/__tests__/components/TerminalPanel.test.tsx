@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 // Mock TerminalInstance since it depends on xterm dynamic imports
@@ -40,8 +41,8 @@ describe("TerminalPanel", () => {
   it("renders session tabs when sessions exist", () => {
     useWorkspaceStore.setState({
       terminalSessions: [
-        { sessionId: "sess-1", active: true },
-        { sessionId: "sess-2", active: true },
+        { sessionId: "sess-1", active: true, target: "host" as const },
+        { sessionId: "sess-2", active: true, target: "host" as const },
       ],
       activeTerminalId: "sess-1",
     });
@@ -54,7 +55,7 @@ describe("TerminalPanel", () => {
 
   it("displays 'exited' label for inactive sessions", () => {
     useWorkspaceStore.setState({
-      terminalSessions: [{ sessionId: "sess-1", active: false }],
+      terminalSessions: [{ sessionId: "sess-1", active: false, target: "host" as const }],
       activeTerminalId: "sess-1",
     });
 
@@ -65,8 +66,8 @@ describe("TerminalPanel", () => {
   it("renders TerminalInstance for each session", () => {
     useWorkspaceStore.setState({
       terminalSessions: [
-        { sessionId: "sess-1", active: true },
-        { sessionId: "sess-2", active: true },
+        { sessionId: "sess-1", active: true, target: "host" as const },
+        { sessionId: "sess-2", active: true, target: "host" as const },
       ],
       activeTerminalId: "sess-1",
     });
@@ -85,8 +86,8 @@ describe("TerminalPanel", () => {
 
     useWorkspaceStore.setState({
       terminalSessions: [
-        { sessionId: "sess-1", active: true },
-        { sessionId: "sess-2", active: true },
+        { sessionId: "sess-1", active: true, target: "host" as const },
+        { sessionId: "sess-2", active: true, target: "host" as const },
       ],
       activeTerminalId: "sess-1",
     });
@@ -104,14 +105,14 @@ describe("TerminalPanel", () => {
     mockCall.mockResolvedValue({ sessionId: "new-sess" });
 
     useWorkspaceStore.setState({
-      terminalSessions: [{ sessionId: "sess-1", active: true }],
+      terminalSessions: [{ sessionId: "sess-1", active: true, target: "host" as const }],
       activeTerminalId: "sess-1",
       status: "connected",
     });
 
     render(<TerminalPanel />);
 
-    await user.click(screen.getByTitle("New Terminal"));
+    await user.click(screen.getByTitle("New Terminal (Host)"));
 
     expect(mockCall).toHaveBeenCalledWith("terminal.create", {});
   });
@@ -121,7 +122,7 @@ describe("TerminalPanel", () => {
     const user = userEvent.setup();
 
     useWorkspaceStore.setState({
-      terminalSessions: [{ sessionId: "sess-1", active: true }],
+      terminalSessions: [{ sessionId: "sess-1", active: true, target: "host" as const }],
       activeTerminalId: "sess-1",
       terminalVisible: true,
     });
@@ -139,7 +140,7 @@ describe("TerminalPanel", () => {
     mockCall.mockResolvedValue({ success: true });
 
     useWorkspaceStore.setState({
-      terminalSessions: [{ sessionId: "sess-1", active: true }],
+      terminalSessions: [{ sessionId: "sess-1", active: true, target: "host" as const }],
       activeTerminalId: "sess-1",
     });
 
@@ -202,7 +203,7 @@ describe("TerminalPanel", () => {
     mockCall.mockRejectedValue(new Error("Connection lost"));
 
     useWorkspaceStore.setState({
-      terminalSessions: [{ sessionId: "sess-1", active: true }],
+      terminalSessions: [{ sessionId: "sess-1", active: true, target: "host" as const }],
       activeTerminalId: "sess-1",
     });
 
@@ -240,7 +241,7 @@ describe("TerminalPanel", () => {
 
   it("does not auto-create when sessions already exist", () => {
     useWorkspaceStore.setState({
-      terminalSessions: [{ sessionId: "sess-1", active: true }],
+      terminalSessions: [{ sessionId: "sess-1", active: true, target: "host" as const }],
       activeTerminalId: "sess-1",
       status: "connected",
     });
@@ -259,7 +260,141 @@ describe("TerminalPanel", () => {
 
     await vi.waitFor(() => {
       const sessions = useWorkspaceStore.getState().terminalSessions;
-      expect(sessions).toContainEqual({ sessionId: "auto-sess", active: true });
+      expect(sessions).toContainEqual({ sessionId: "auto-sess", active: true, target: "host" });
+    });
+  });
+
+  // ── Container terminal button ──
+
+  describe("container terminal button", () => {
+    it("is not shown when no running container exists", () => {
+      useWorkspaceStore.setState({
+        terminalSessions: [{ sessionId: "sess-1", active: true, target: "host" as const }],
+        activeTerminalId: "sess-1",
+        activeWorktreeId: "wt-1",
+        environments: {},
+      });
+
+      render(<TerminalPanel />);
+      expect(screen.queryByTitle("New Terminal (Container)")).not.toBeInTheDocument();
+    });
+
+    it("is shown when a container is running for the active worktree", () => {
+      useWorkspaceStore.setState({
+        terminalSessions: [{ sessionId: "sess-1", active: true, target: "host" as const }],
+        activeTerminalId: "sess-1",
+        activeWorktreeId: "wt-1",
+        environments: {
+          "wt-1": { worktreeId: "wt-1", branch: "main", status: "running", config: null, hostPort: null, containerId: "ctn-abc", error: null, setupCompleted: false, serviceStates: {} },
+        },
+      });
+
+      render(<TerminalPanel />);
+      expect(screen.getByTitle("New Terminal (Container)")).toBeInTheDocument();
+    });
+
+    it("is not shown when container status is not running", () => {
+      useWorkspaceStore.setState({
+        terminalSessions: [{ sessionId: "sess-1", active: true, target: "host" as const }],
+        activeTerminalId: "sess-1",
+        activeWorktreeId: "wt-1",
+        environments: {
+          "wt-1": { worktreeId: "wt-1", branch: "main", status: "building", config: null, hostPort: null, containerId: null, error: null, setupCompleted: false, serviceStates: {} },
+        },
+      });
+
+      render(<TerminalPanel />);
+      expect(screen.queryByTitle("New Terminal (Container)")).not.toBeInTheDocument();
+    });
+
+    it("calls terminal.create with containerId on click", async () => {
+      const user = userEvent.setup();
+      mockCall.mockResolvedValue({ sessionId: "sess-c1" });
+
+      useWorkspaceStore.setState({
+        terminalSessions: [{ sessionId: "sess-1", active: true, target: "host" as const }],
+        activeTerminalId: "sess-1",
+        activeWorktreeId: "wt-1",
+        environments: {
+          "wt-1": { worktreeId: "wt-1", branch: "main", status: "running", config: null, hostPort: null, containerId: "ctn-abc", error: null, setupCompleted: false, serviceStates: {} },
+        },
+      });
+
+      render(<TerminalPanel />);
+      await user.click(screen.getByTitle("New Terminal (Container)"));
+
+      expect(mockCall).toHaveBeenCalledWith("terminal.create", { containerId: "ctn-abc" });
+    });
+
+    it("adds container session to store after successful creation", async () => {
+      const user = userEvent.setup();
+      mockCall.mockResolvedValue({ sessionId: "sess-c1" });
+
+      useWorkspaceStore.setState({
+        terminalSessions: [{ sessionId: "sess-1", active: true, target: "host" as const }],
+        activeTerminalId: "sess-1",
+        activeWorktreeId: "wt-1",
+        environments: {
+          "wt-1": { worktreeId: "wt-1", branch: "main", status: "running", config: null, hostPort: null, containerId: "ctn-abc", error: null, setupCompleted: false, serviceStates: {} },
+        },
+      });
+
+      render(<TerminalPanel />);
+      await user.click(screen.getByTitle("New Terminal (Container)"));
+
+      await vi.waitFor(() => {
+        const sessions = useWorkspaceStore.getState().terminalSessions;
+        expect(sessions).toContainEqual({
+          sessionId: "sess-c1",
+          active: true,
+          target: "container",
+          containerId: "ctn-abc",
+        });
+      });
+    });
+  });
+
+  // ── Target indicators ──
+
+  describe("target indicators", () => {
+    it("shows host indicator (blue) for host sessions", () => {
+      useWorkspaceStore.setState({
+        terminalSessions: [{ sessionId: "sess-1", active: true, target: "host" as const }],
+        activeTerminalId: "sess-1",
+      });
+
+      render(<TerminalPanel />);
+      expect(screen.getByTitle("Host")).toBeInTheDocument();
+      expect(screen.getByText("bash (1)")).toBeInTheDocument();
+    });
+
+    it("shows container indicator (teal) for container sessions", () => {
+      useWorkspaceStore.setState({
+        terminalSessions: [
+          { sessionId: "sess-c1", active: true, target: "container" as const, containerId: "ctn-abc" },
+        ],
+        activeTerminalId: "sess-c1",
+      });
+
+      render(<TerminalPanel />);
+      expect(screen.getByTitle("Container")).toBeInTheDocument();
+      expect(screen.getByText("container (1)")).toBeInTheDocument();
+    });
+
+    it("shows mixed indicators for host and container sessions", () => {
+      useWorkspaceStore.setState({
+        terminalSessions: [
+          { sessionId: "sess-1", active: true, target: "host" as const },
+          { sessionId: "sess-c1", active: true, target: "container" as const, containerId: "ctn-abc" },
+        ],
+        activeTerminalId: "sess-1",
+      });
+
+      render(<TerminalPanel />);
+      expect(screen.getByTitle("Host")).toBeInTheDocument();
+      expect(screen.getByTitle("Container")).toBeInTheDocument();
+      expect(screen.getByText("bash (1)")).toBeInTheDocument();
+      expect(screen.getByText("container (2)")).toBeInTheDocument();
     });
   });
 });

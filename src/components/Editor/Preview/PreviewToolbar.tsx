@@ -13,6 +13,8 @@ export function PreviewToolbar() {
   const setPreviewVisible = useWorkspaceStore((s) => s.setPreviewVisible);
   const addToast = useWorkspaceStore((s) => s.addToast);
 
+  const previewUrl = useWorkspaceStore((s) => s.previewUrl);
+
   const isRunning = devServerStatus === "running";
   const isStarting = devServerStatus === "starting";
 
@@ -42,6 +44,12 @@ export function PreviewToolbar() {
     },
     [setActiveViewport]
   );
+
+  const handlePopout = useCallback(() => {
+    if (previewUrl) {
+      window.open(previewUrl, "_blank", "width=1280,height=720");
+    }
+  }, [previewUrl]);
 
   const handleClose = useCallback(() => {
     setPreviewVisible(false);
@@ -90,6 +98,19 @@ export function PreviewToolbar() {
         >
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
             <path d="M13.451 5.609l-.579-.939-1.068.812-.076.094c.335.57.528 1.236.528 1.949 0 2.044-1.577 3.71-3.567 3.853l.443-.896-.872-.509-1.378 2.793L9.051 15l.872-.509-.652-1.321c2.674-.233 4.773-2.48 4.773-5.246 0-.802-.181-1.561-.502-2.238l-.091-.077zM7.875 3.592l-.652-1.321-.872.509.443.896C4.12 3.909 2.044 6.156 2.044 8.922c0 .802.181 1.561.502 2.238l.091.077.579.939 1.068-.812.076-.094a3.857 3.857 0 01-.527-1.949c0-2.044 1.576-3.71 3.567-3.853l-.443.896.872.509 1.378-2.793L7.013 2.1l-.01.001.872.509v.982z" />
+          </svg>
+        </button>
+
+        {/* Popout button */}
+        <button
+          type="button"
+          className="rounded p-0.5 text-[#cccccc] hover:bg-[#3c3c3c] disabled:opacity-30"
+          onClick={handlePopout}
+          disabled={!isRunning}
+          title="Open in new window"
+        >
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+            <path d="M1.5 1H6v1H2v12h12v-4h1v4.5l-.5.5h-13l-.5-.5v-13l.5-.5zM15 1.5V8h-1V2.707L7.854 8.854l-.708-.708L13.293 2H8V1h6.5l.5.5z" />
           </svg>
         </button>
 

@@ -173,6 +173,18 @@ describe("ChatSlice", () => {
       expect(getState().pendingChanges[0].status).toBe("accepted");
       expect(getState().pendingChanges[1].status).toBe("pending");
     });
+
+    it("syncs accepted status to chatMessages.codeChanges", () => {
+      getState().addAssistantMessage("asst-1");
+      getState().addCodeChange("asst-1", {
+        changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending",
+      });
+
+      getState().acceptChange("c1");
+
+      const msg = getState().chatMessages.find((m) => m.id === "asst-1");
+      expect(msg?.codeChanges?.[0].status).toBe("accepted");
+    });
   });
 
   describe("rejectChange", () => {
@@ -185,6 +197,18 @@ describe("ChatSlice", () => {
       getState().rejectChange("c1");
 
       expect(getState().pendingChanges[0].status).toBe("rejected");
+    });
+
+    it("syncs rejected status to chatMessages.codeChanges", () => {
+      getState().addAssistantMessage("asst-1");
+      getState().addCodeChange("asst-1", {
+        changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending",
+      });
+
+      getState().rejectChange("c1");
+
+      const msg = getState().chatMessages.find((m) => m.id === "asst-1");
+      expect(msg?.codeChanges?.[0].status).toBe("rejected");
     });
   });
 
@@ -220,6 +244,21 @@ describe("ChatSlice", () => {
       expect(getState().pendingChanges[0].status).toBe("accepted");
       expect(getState().pendingChanges[1].status).toBe("rejected");
     });
+
+    it("syncs accepted status to chatMessages.codeChanges", () => {
+      getState().addAssistantMessage("asst-1");
+      getState().addCodeChange("asst-1", {
+        changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending",
+      });
+      getState().addCodeChange("asst-1", {
+        changeId: "c2", filePath: "/b.ts", original: "a", modified: "b", status: "pending",
+      });
+
+      getState().acceptAllChanges();
+
+      const msg = getState().chatMessages.find((m) => m.id === "asst-1");
+      expect(msg?.codeChanges?.every((c) => c.status === "accepted")).toBe(true);
+    });
   });
 
   describe("rejectAllChanges", () => {
@@ -235,6 +274,21 @@ describe("ChatSlice", () => {
       getState().rejectAllChanges();
 
       expect(getState().pendingChanges.every((c) => c.status === "rejected")).toBe(true);
+    });
+
+    it("syncs rejected status to chatMessages.codeChanges", () => {
+      getState().addAssistantMessage("asst-1");
+      getState().addCodeChange("asst-1", {
+        changeId: "c1", filePath: "/a.ts", original: "x", modified: "y", status: "pending",
+      });
+      getState().addCodeChange("asst-1", {
+        changeId: "c2", filePath: "/b.ts", original: "a", modified: "b", status: "pending",
+      });
+
+      getState().rejectAllChanges();
+
+      const msg = getState().chatMessages.find((m) => m.id === "asst-1");
+      expect(msg?.codeChanges?.every((c) => c.status === "rejected")).toBe(true);
     });
   });
 

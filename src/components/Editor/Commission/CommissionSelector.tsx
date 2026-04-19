@@ -67,7 +67,7 @@ export function CommissionSelector({
     );
   }
 
-  if (definitions.length === 0) {
+  if (definitions.length === 0 && !isRunning) {
     return (
       <div className="border-b border-[#3c3c3c] px-3 py-4">
         <p className="text-[12px] text-[#969696]">No commissions available</p>

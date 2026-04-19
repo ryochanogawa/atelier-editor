@@ -328,6 +328,8 @@ const createToastSlice: StateCreator<WorkspaceStore, [], [], ToastSlice> = (
 export interface TerminalSession {
   sessionId: string;
   active: boolean;
+  target: "host" | "container";
+  containerId?: string;
 }
 
 interface TerminalSlice {
@@ -336,7 +338,7 @@ interface TerminalSlice {
   terminalVisible: boolean;
   terminalHeight: number;
 
-  addTerminalSession: (sessionId: string) => void;
+  addTerminalSession: (sessionId: string, options?: { target?: "host" | "container"; containerId?: string }) => void;
   removeTerminalSession: (sessionId: string) => void;
   setActiveTerminalId: (id: string | null) => void;
   setTerminalVisible: (visible: boolean) => void;
@@ -353,9 +355,17 @@ const createTerminalSlice: StateCreator<WorkspaceStore, [], [], TerminalSlice> =
   terminalVisible: false,
   terminalHeight: 256,
 
-  addTerminalSession: (sessionId) =>
+  addTerminalSession: (sessionId, options) =>
     set((state) => ({
-      terminalSessions: [...state.terminalSessions, { sessionId, active: true }],
+      terminalSessions: [
+        ...state.terminalSessions,
+        {
+          sessionId,
+          active: true,
+          target: options?.target ?? "host",
+          containerId: options?.containerId,
+        },
+      ],
       activeTerminalId: sessionId,
       terminalVisible: true,
     })),
@@ -495,6 +505,8 @@ export const VIEWPORT_PRESETS: ViewportPreset[] = [
   { name: "Desktop", width: 1440, height: 900 },
 ];
 
+export type PreviewSource = "vite" | "container";
+
 interface PreviewSlice {
   previewVisible: boolean;
   previewWidth: number;
@@ -504,12 +516,13 @@ interface PreviewSlice {
   previewError: string | null;
   previewLogs: string[];
   activeViewport: ViewportPreset | null;
+  previewSource: PreviewSource;
 
   setPreviewVisible: (visible: boolean) => void;
   togglePreview: () => void;
   setPreviewWidth: (width: number) => void;
   setDevServerStatus: (status: DevServerStatus) => void;
-  setPreviewUrl: (url: string | null, port: number | null) => void;
+  setPreviewUrl: (url: string | null, port: number | null, source?: PreviewSource) => void;
   setPreviewError: (error: string | null) => void;
   addPreviewLog: (line: string) => void;
   clearPreviewLogs: () => void;
@@ -530,12 +543,17 @@ const createPreviewSlice: StateCreator<WorkspaceStore, [], [], PreviewSlice> = (
   previewError: null,
   previewLogs: [],
   activeViewport: null,
+  previewSource: "vite",
 
   setPreviewVisible: (previewVisible) => set({ previewVisible }),
   togglePreview: () => set((state) => ({ previewVisible: !state.previewVisible })),
   setPreviewWidth: (previewWidth) => set({ previewWidth }),
   setDevServerStatus: (devServerStatus) => set({ devServerStatus }),
-  setPreviewUrl: (previewUrl, previewPort) => set({ previewUrl, previewPort }),
+  setPreviewUrl: (previewUrl, previewPort, source) => set({
+    previewUrl,
+    previewPort,
+    ...(source !== undefined ? { previewSource: source } : {}),
+  }),
   setPreviewError: (previewError) => set({ previewError }),
   addPreviewLog: (line) =>
     set((state) => {

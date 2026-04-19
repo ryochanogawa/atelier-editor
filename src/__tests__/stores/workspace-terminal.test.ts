@@ -22,7 +22,7 @@ describe("workspace store – Terminal Slice", () => {
       getState().addTerminalSession("sess-1");
 
       expect(getState().terminalSessions).toEqual([
-        { sessionId: "sess-1", active: true },
+        { sessionId: "sess-1", active: true, target: "host" },
       ]);
       expect(getState().activeTerminalId).toBe("sess-1");
       expect(getState().terminalVisible).toBe(true);
@@ -34,6 +34,24 @@ describe("workspace store – Terminal Slice", () => {
 
       expect(getState().terminalSessions).toHaveLength(2);
       expect(getState().activeTerminalId).toBe("sess-2");
+    });
+
+    it("adds a container terminal session with target and containerId", () => {
+      getState().addTerminalSession("sess-c1", {
+        target: "container",
+        containerId: "abc123",
+      });
+
+      expect(getState().terminalSessions).toEqual([
+        { sessionId: "sess-c1", active: true, target: "container", containerId: "abc123" },
+      ]);
+    });
+
+    it("defaults target to host when no options provided", () => {
+      getState().addTerminalSession("sess-h1");
+
+      expect(getState().terminalSessions[0].target).toBe("host");
+      expect(getState().terminalSessions[0].containerId).toBeUndefined();
     });
   });
 

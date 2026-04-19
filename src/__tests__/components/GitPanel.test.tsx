@@ -55,7 +55,7 @@ describe("GitPanel", () => {
 
     it("renders current branch name", () => {
       useWorkspaceStore.setState({
-        currentBranch: { name: "feature/test", isCurrent: true, isRemote: false },
+        currentBranch: { name: "feature/test", current: true },
       });
       render(<GitPanel />);
       expect(screen.getByText("feature/test")).toBeInTheDocument();
@@ -81,7 +81,7 @@ describe("GitPanel", () => {
   describe("push button", () => {
     it("is disabled when no remote configured", () => {
       useWorkspaceStore.setState({
-        currentBranch: { name: "main", isCurrent: true, isRemote: false },
+        currentBranch: { name: "main", current: true },
       });
       render(<GitPanel />);
       expect(screen.getByRole("button", { name: /Push/ })).toBeDisabled();
@@ -89,7 +89,7 @@ describe("GitPanel", () => {
 
     it("is enabled when remote is configured", () => {
       useWorkspaceStore.setState({
-        currentBranch: { name: "main", isCurrent: true, isRemote: false, remote: "origin/main" },
+        currentBranch: { name: "main", current: true, remote: "origin/main" },
       });
       render(<GitPanel />);
       expect(screen.getByRole("button", { name: /Push/ })).toBeEnabled();
@@ -97,7 +97,7 @@ describe("GitPanel", () => {
 
     it("shows ahead count on push button", () => {
       useWorkspaceStore.setState({
-        currentBranch: { name: "main", isCurrent: true, isRemote: false, remote: "origin/main", ahead: 3 },
+        currentBranch: { name: "main", current: true, remote: "origin/main", ahead: 3 },
       });
       render(<GitPanel />);
       expect(screen.getByRole("button", { name: /Push/ })).toHaveTextContent("Push ↑3");
@@ -106,7 +106,7 @@ describe("GitPanel", () => {
     it("calls git.push and shows success toast on click", async () => {
       const user = userEvent.setup();
       useWorkspaceStore.setState({
-        currentBranch: { name: "main", isCurrent: true, isRemote: false, remote: "origin/main" },
+        currentBranch: { name: "main", current: true, remote: "origin/main" },
       });
       mockCall.mockImplementation((method: string) => {
         if (method === "git.push") return Promise.resolve({});
@@ -127,7 +127,7 @@ describe("GitPanel", () => {
     it("shows error toast on push failure", async () => {
       const user = userEvent.setup();
       useWorkspaceStore.setState({
-        currentBranch: { name: "main", isCurrent: true, isRemote: false, remote: "origin/main" },
+        currentBranch: { name: "main", current: true, remote: "origin/main" },
       });
       mockCall.mockImplementation((method: string) => {
         if (method === "git.push") return Promise.reject(new Error("Push rejected"));
@@ -150,7 +150,7 @@ describe("GitPanel", () => {
   describe("commit handling", () => {
     it("disables commit form when no staged files", () => {
       useWorkspaceStore.setState({
-        gitStatus: [{ path: "/a.ts", status: "M" as const, staged: false }],
+        gitStatus: [{ path: "/a.ts", status: "modified" as const, staged: false }],
       });
       render(<GitPanel />);
       expect(screen.getByTestId("commit-form")).toBeDisabled();
@@ -158,7 +158,7 @@ describe("GitPanel", () => {
 
     it("enables commit form when staged files exist", () => {
       useWorkspaceStore.setState({
-        gitStatus: [{ path: "/a.ts", status: "M" as const, staged: true }],
+        gitStatus: [{ path: "/a.ts", status: "modified" as const, staged: true }],
       });
       render(<GitPanel />);
       expect(screen.getByTestId("commit-form")).not.toBeDisabled();
@@ -167,7 +167,7 @@ describe("GitPanel", () => {
     it("calls git.commit and shows success toast on commit", async () => {
       const user = userEvent.setup();
       useWorkspaceStore.setState({
-        gitStatus: [{ path: "/a.ts", status: "M" as const, staged: true }],
+        gitStatus: [{ path: "/a.ts", status: "modified" as const, staged: true }],
       });
       mockCall.mockImplementation((method: string) => {
         if (method === "git.commit") return Promise.resolve({ hash: "abc123" });
@@ -188,7 +188,7 @@ describe("GitPanel", () => {
     it("refreshes commit log after successful commit", async () => {
       const user = userEvent.setup();
       useWorkspaceStore.setState({
-        gitStatus: [{ path: "/a.ts", status: "M" as const, staged: true }],
+        gitStatus: [{ path: "/a.ts", status: "modified" as const, staged: true }],
       });
       const logEntries = [{ hash: "abc123", message: "test", author: "dev", date: "2024-01-01" }];
       mockCall.mockImplementation((method: string) => {
@@ -210,7 +210,7 @@ describe("GitPanel", () => {
     it("shows error toast on commit failure", async () => {
       const user = userEvent.setup();
       useWorkspaceStore.setState({
-        gitStatus: [{ path: "/a.ts", status: "M" as const, staged: true }],
+        gitStatus: [{ path: "/a.ts", status: "modified" as const, staged: true }],
       });
       mockCall.mockImplementation((method: string) => {
         if (method === "git.commit") return Promise.reject(new Error("Nothing to commit"));

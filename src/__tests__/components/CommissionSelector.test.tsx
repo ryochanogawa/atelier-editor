@@ -157,4 +157,65 @@ describe("CommissionSelector", () => {
     rerender(<CommissionSelector {...defaultProps} definitions={newDefs} />);
     expect(screen.getByRole("button", { name: "Run Commission" })).toBeEnabled();
   });
+
+  // ── Abort button with empty definitions (recent fix) ──
+
+  it("shows Abort button when definitions are empty but isRunning is true", () => {
+    render(
+      <CommissionSelector {...defaultProps} definitions={[]} isRunning={true} />
+    );
+
+    expect(screen.getByRole("button", { name: "Abort" })).toBeInTheDocument();
+    expect(screen.queryByText("No commissions available")).not.toBeInTheDocument();
+  });
+
+  // ── Params display ──
+
+  it("shows parameter details when a commission with params is selected", async () => {
+    const user = userEvent.setup();
+    const defsWithParams: CommissionDefinition[] = [
+      {
+        name: "deploy",
+        description: "Deploy to production",
+        params: {
+          target: { type: "string", description: "Deploy target", required: true },
+          dryRun: { type: "boolean", description: "Dry run mode" },
+        },
+      },
+    ];
+    render(<CommissionSelector {...defaultProps} definitions={defsWithParams} />);
+
+    await user.selectOptions(screen.getByRole("combobox"), "deploy");
+
+    expect(screen.getByText("Parameters")).toBeInTheDocument();
+    expect(screen.getByText("target")).toBeInTheDocument();
+    expect(screen.getByText("string")).toBeInTheDocument();
+    expect(screen.getByText("— Deploy target")).toBeInTheDocument();
+    expect(screen.getByText("*")).toBeInTheDocument(); // required indicator
+    expect(screen.getByText("dryRun")).toBeInTheDocument();
+    expect(screen.getByText("boolean")).toBeInTheDocument();
+  });
+
+  it("does not show Parameters section when commission has no params", async () => {
+    const user = userEvent.setup();
+    render(<CommissionSelector {...defaultProps} />);
+
+    await user.selectOptions(screen.getByRole("combobox"), "build");
+
+    expect(screen.getByText("Build the project")).toBeInTheDocument();
+    expect(screen.queryByText("Parameters")).not.toBeInTheDocument();
+  });
+
+  it("does not show Parameters section when params is empty object", async () => {
+    const user = userEvent.setup();
+    const defsEmptyParams: CommissionDefinition[] = [
+      { name: "test", description: "Run tests", params: {} },
+    ];
+    render(<CommissionSelector {...defaultProps} definitions={defsEmptyParams} />);
+
+    await user.selectOptions(screen.getByRole("combobox"), "test");
+
+    expect(screen.getByText("Run tests")).toBeInTheDocument();
+    expect(screen.queryByText("Parameters")).not.toBeInTheDocument();
+  });
 });

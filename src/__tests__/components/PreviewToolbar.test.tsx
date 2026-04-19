@@ -155,6 +155,41 @@ describe("PreviewToolbar", () => {
     });
   });
 
+  // ── Popout button ──
+
+  describe("popout button", () => {
+    it("is disabled when server is not running", () => {
+      render(<PreviewToolbar />);
+      expect(screen.getByTitle("Open in new window")).toBeDisabled();
+    });
+
+    it("is enabled when server is running", () => {
+      useWorkspaceStore.setState({ devServerStatus: "running", previewUrl: "http://localhost:3000" });
+      render(<PreviewToolbar />);
+      expect(screen.getByTitle("Open in new window")).not.toBeDisabled();
+    });
+
+    it("calls window.open with preview URL on click", async () => {
+      const user = userEvent.setup();
+      const mockOpen = vi.spyOn(window, "open").mockImplementation(() => null);
+
+      useWorkspaceStore.setState({
+        devServerStatus: "running",
+        previewUrl: "http://localhost:3000",
+      });
+      render(<PreviewToolbar />);
+
+      await user.click(screen.getByTitle("Open in new window"));
+      expect(mockOpen).toHaveBeenCalledWith(
+        "http://localhost:3000",
+        "_blank",
+        "width=1280,height=720"
+      );
+
+      mockOpen.mockRestore();
+    });
+  });
+
   // ── Close button ──
 
   describe("close button", () => {
